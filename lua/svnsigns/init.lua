@@ -258,16 +258,6 @@ local function parse_diff(diff_output)
   return changes
 end
 
--- Get SVN blame for entire file
-local function get_full_blame(file)
-  local cmd = string.format("svn blame -v %s 2>/dev/null | awk '{$3=\"\"; $4=\"\"; print $0}'", vim.fn.shellescape(file))
-  local handle = io.popen(cmd)
-  if not handle then return nil end
-  local result = handle:read("*a")
-  handle:close()
-  return result
-end
-
 -- Get SVN blame metadata only (no code)
 local function get_blame_metadata(file)
   -- Get blame with verbose mode, extract rev (col 1), author (col 2), and date (col 3)
