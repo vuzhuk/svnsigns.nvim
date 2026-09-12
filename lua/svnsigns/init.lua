@@ -262,6 +262,53 @@ local function parse_diff(diff_output)
   return changes
 end
 
+-- Split a unified diff into hunks, each covering a contiguous range of the
+-- *new* (buffer) file. Used by preview_hunk to show only the hunk under the
+-- cursor instead of the whole-file diff (gitsigns-style).
+-- Returns: { { new_start = N, new_count = M, lines = {...} }, ... }
+local function split_into_hunks(diff_output)
+  local hunks = {}
+  if not diff_output or diff_output == "" then
+    return hunks
+  end
+
+  local lines = {}
+  for line in diff_output:gmatch("[^\r\n]+") do
+    table.insert(lines, line)
+  end
+
+  local current = nil
+  for _, line in ipairs(lines) do
+    local new_start, new_count = line:match("^@@ %-[%d,]+ %+(%d+),?(%d*) @@")
+    if new_start then
+      if current then table.insert(hunks, current) end
+      current = {
+        new_start = tonumber(new_start),
+        new_count = tonumber(new_count) or 1,
+        lines = { line },
+      }
+    elseif current and not line:match("^%-%-%-") and not line:match("^%+%+%+") then
+      table.insert(current.lines, line)
+    end
+  end
+  if current then table.insert(hunks, current) end
+
+  return hunks
+end
+
+-- Find the hunk (if any) whose new-file line range contains `cursor_line`
+-- (1-indexed). A hunk's range includes its surrounding unified-diff context
+-- lines, matching how gitsigns scopes preview_hunk to "the hunk near you".
+local function find_hunk_at_line(hunks, cursor_line)
+  for _, hunk in ipairs(hunks) do
+    local last = hunk.new_start + math.max(hunk.new_count, 1) - 1
+    if cursor_line >= hunk.new_start and cursor_line <= last then
+      return hunk
+    end
+  end
+  return nil
+end
+
 -- Get SVN blame metadata only (no code)
 local function get_blame_metadata(file)
   -- Get blame with verbose mode, extract rev (col 1), author (col 2), and date (col 3)
@@ -401,7 +448,8 @@ function M.prev_hunk()
   end
 end
 
--- Preview hunk diff
+-- Preview the hunk under the cursor (gitsigns-style: just the relevant hunk,
+-- not the whole-file diff).
 function M.preview_hunk()
   local bufnr = vim.api.nvim_get_current_buf()
   local file = vim.api.nvim_buf_get_name(bufnr)
@@ -412,7 +460,16 @@ function M.preview_hunk()
     return
   end
 
-  local lines = vim.split(diff, "\n")
+  local hunks = split_into_hunks(diff)
+  local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+  local hunk = find_hunk_at_line(hunks, cursor_line)
+
+  if not hunk then
+    vim.notify("No hunk at cursor", vim.log.levels.INFO)
+    return
+  end
+
+  local lines = hunk.lines
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.api.nvim_set_option_value("filetype", "diff", { buf = buf })
@@ -428,7 +485,7 @@ function M.preview_hunk()
     row = (vim.o.lines - height) / 2,
     style = "minimal",
     border = "rounded",
-    title = " SVN Diff ",
+    title = " SVN Hunk Diff ",
     title_pos = "center",
   })
 
