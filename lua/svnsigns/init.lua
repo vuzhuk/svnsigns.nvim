@@ -312,8 +312,8 @@ end
 -- Update signs for buffer (async: never blocks the main thread)
 local function update_signs(bufnr)
   -- Skip non-normal buffers (netrw, help, etc.)
-  local buftype = vim.api.nvim_buf_get_option(bufnr, "buftype")
-  local filetype = vim.api.nvim_buf_get_option(bufnr, "filetype")
+  local buftype = vim.api.nvim_get_option_value("buftype", { buf = bufnr })
+  local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
   
   if buftype ~= "" or filetype == "netrw" or filetype == "help" then
     -- Clear any signs from special buffers
@@ -411,7 +411,7 @@ function M.preview_hunk()
   local lines = vim.split(diff, "\n")
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(buf, "filetype", "diff")
+  vim.api.nvim_set_option_value("filetype", "diff", { buf = buf })
 
   local width = math.min(100, vim.o.columns - 4)
   local height = math.min(30, #lines)
@@ -489,8 +489,8 @@ function M.show_line_log()
   -- Show in floating window
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(buf, "modifiable", false)
-  vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+  vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
 
   local width = 80
   local height = math.min(#lines, 20)
@@ -557,9 +557,9 @@ function M.blame_split()
   -- Create blame buffer
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(buf, "modifiable", false)
-  vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
-  vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+  vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
+  vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
   
   -- Open vertical split on the left
   vim.cmd("topleft vsplit")
@@ -822,8 +822,8 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "BufEnter" }, {
     group = augroup,
     callback = function(args)
-      local buftype = vim.api.nvim_buf_get_option(args.buf, "buftype")
-      local filetype = vim.api.nvim_buf_get_option(args.buf, "filetype")
+      local buftype = vim.api.nvim_get_option_value("buftype", { buf = args.buf })
+      local filetype = vim.api.nvim_get_option_value("filetype", { buf = args.buf })
       
       if buftype ~= "" or filetype == "netrw" or filetype == "help" then
         -- Clear any signs from non-file buffers
@@ -838,8 +838,8 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = augroup,
     callback = function(args)
-      local buftype = vim.api.nvim_buf_get_option(args.buf, "buftype")
-      local filetype = vim.api.nvim_buf_get_option(args.buf, "filetype")
+      local buftype = vim.api.nvim_get_option_value("buftype", { buf = args.buf })
+      local filetype = vim.api.nvim_get_option_value("filetype", { buf = args.buf })
       
       if buftype ~= "" or filetype == "netrw" or filetype == "help" then
         return
