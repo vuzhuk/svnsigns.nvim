@@ -6,6 +6,10 @@ M.config = {
     add = { text = "█" },
     change = { text = "█" },
     delete = { text = "█" },
+    -- NOTE: topdelete/changedelete are accepted for config compatibility but
+    -- not yet distinguished by parse_diff/place_signs (both currently fall
+    -- under "delete"/"change"). Planned for a future hunk-boundary-detection
+    -- feature; see feat/topdelete-changedelete-signs.
     topdelete = { text = "█" },
     changedelete = { text = "█" },
   },
