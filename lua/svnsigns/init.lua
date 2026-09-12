@@ -6,10 +6,6 @@ M.config = {
     add = { text = "█" },
     change = { text = "█" },
     delete = { text = "█" },
-    -- NOTE: topdelete/changedelete are accepted for config compatibility but
-    -- not yet distinguished by parse_diff/place_signs (both currently fall
-    -- under "delete"/"change"). Planned for a future hunk-boundary-detection
-    -- feature; see feat/topdelete-changedelete-signs.
     topdelete = { text = "█" },
     changedelete = { text = "█" },
   },
@@ -64,6 +60,8 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "SvnSignsAdd", { ctermfg = 2, fg = "Green", bold = true })
   vim.api.nvim_set_hl(0, "SvnSignsChange", { ctermfg = 3, fg = "Yellow", bold = true })
   vim.api.nvim_set_hl(0, "SvnSignsDelete", { ctermfg = 1, fg = "Red", bold = true })
+  vim.api.nvim_set_hl(0, "SvnSignsTopDelete", { link = "SvnSignsDelete", default = true })
+  vim.api.nvim_set_hl(0, "SvnSignsChangeDelete", { link = "SvnSignsChange", default = true })
   vim.api.nvim_set_hl(0, "SvnSignsBlameRevision", { link = "Number", default = true })
   vim.api.nvim_set_hl(0, "SvnSignsBlameAuthor", { link = "String", default = true })
 end
@@ -214,9 +212,17 @@ local function get_buffer_diff_async(bufnr, file, callback)
   end)
 end
 
--- Parse unified diff to extract changes
+-- Parse unified diff to extract changes, classified the same way gitsigns
+-- classifies hunks:
+--   add          - pure new lines with no corresponding removal
+--   change       - a removed line paired 1:1 with an added line
+--   delete       - removed lines with nothing replacing them, mid-file
+--   topdelete    - removed lines with nothing replacing them, at the very
+--                  start of the file (nothing precedes them to attach to)
+--   changedelete - a change block where more lines were removed than added;
+--                  the "leftover" removals attach to the last changed line
 local function parse_diff(diff_output)
-  local changes = { add = {}, change = {}, delete = {} }
+  local changes = { add = {}, change = {}, delete = {}, topdelete = {}, changedelete = {} }
   if not diff_output or diff_output == "" then
     return changes
   end
@@ -228,35 +234,82 @@ local function parse_diff(diff_output)
   end
 
   local current_line = 0
+  -- True until we've emitted any context/add/change line — i.e. nothing in
+  -- the new file precedes the current position yet. Only while this holds
+  -- can a pure-deletion block be a "topdelete" (deletion at file start).
+  local at_file_start = true
   local i = 1
-  
+
+  local function is_del(l) return l:match("^%-") and not l:match("^%-%-%-") end
+  local function is_add(l) return l:match("^%+") and not l:match("^%+%+%+") end
+
   while i <= #lines do
     local line = lines[i]
-    local new_line_start = line:match("^@@ %-(%d+)")
-    
-    if new_line_start then
-      current_line = tonumber(line:match("^@@ %-[%d,]+ %+(%d+)"))
-    elseif line:match("^%-") and not line:match("^%-%-%-") then
-      -- Check if next line is an add (indicating a modification)
-      local next_line = lines[i + 1]
-      if next_line and next_line:match("^%+") and not next_line:match("^%+%+%+") then
-        -- This is a modification
+
+    if line:match("^@@ %-") then
+      current_line = tonumber(line:match("^@@ %-[%d,]+ %+(%d+)")) or 0
+      i = i + 1
+    elseif is_del(line) then
+      local was_at_file_start = at_file_start
+
+      -- Collect the run of consecutive deletions...
+      local del_count = 0
+      local j = i
+      while j <= #lines and is_del(lines[j]) do
+        del_count = del_count + 1
+        j = j + 1
+      end
+      -- ...and the run of consecutive additions immediately following it.
+      local add_count = 0
+      local k = j
+      while k <= #lines and is_add(lines[k]) do
+        add_count = add_count + 1
+        k = k + 1
+      end
+
+      local paired = math.min(del_count, add_count)
+      for _ = 1, paired do
         table.insert(changes.change, current_line)
         current_line = current_line + 1
-        i = i + 1  -- Skip the next line since we processed it
-      else
-        -- This is a pure deletion
-        table.insert(changes.delete, current_line)
       end
-    elseif line:match("^%+") and not line:match("^%+%+%+") then
-      -- This is a pure addition (not part of a modification)
+      at_file_start = false
+
+      if del_count > add_count then
+        -- Deleted lines don't exist in the new file, so however many were
+        -- removed, only one sign is placed at the single attach point.
+        if paired > 0 then
+          -- Excess removals right after a change: changedelete, attached
+          -- to the last changed line.
+          local attach_line = math.max(current_line - 1, 1)
+          table.insert(changes.changedelete, attach_line)
+        elseif was_at_file_start and current_line <= 1 then
+          -- Pure deletion with nothing before it in the file: topdelete,
+          -- attached to line 1 since there's no earlier line to point to.
+          table.insert(changes.topdelete, math.max(current_line, 1))
+        else
+          table.insert(changes.delete, current_line)
+        end
+      elseif add_count > del_count then
+        local excess = add_count - del_count
+        for _ = 1, excess do
+          table.insert(changes.add, current_line)
+          current_line = current_line + 1
+        end
+      end
+
+      i = k
+    elseif is_add(line) then
       table.insert(changes.add, current_line)
       current_line = current_line + 1
+      at_file_start = false
+      i = i + 1
     elseif line:match("^ ") then
       current_line = current_line + 1
+      at_file_start = false
+      i = i + 1
+    else
+      i = i + 1
     end
-    
-    i = i + 1
   end
 
   return changes
@@ -354,6 +407,28 @@ local function place_signs(bufnr, changes)
       vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
         sign_text = M.config.signs.delete.text,
         sign_hl_group = "SvnSignsDelete",
+        priority = M.config.sign_priority,
+      })
+    end
+  end
+
+  -- Place topdelete signs (pure deletion at the very start of the file)
+  for _, lnum in ipairs(changes.topdelete) do
+    if lnum > 0 then
+      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
+        sign_text = M.config.signs.topdelete.text,
+        sign_hl_group = "SvnSignsTopDelete",
+        priority = M.config.sign_priority,
+      })
+    end
+  end
+
+  -- Place changedelete signs (a change block with leftover removals)
+  for _, lnum in ipairs(changes.changedelete) do
+    if lnum > 0 then
+      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
+        sign_text = M.config.signs.changedelete.text,
+        sign_hl_group = "SvnSignsChangeDelete",
         priority = M.config.sign_priority,
       })
     end
