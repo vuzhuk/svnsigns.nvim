@@ -570,13 +570,16 @@ function M.blame_split()
   vim.api.nvim_buf_set_option(buf, "modifiable", false)
   vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
   vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
-  vim.api.nvim_buf_set_option(buf, "wrap", false)
   
   -- Open vertical split on the left
   vim.cmd("topleft vsplit")
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)
   vim.api.nvim_win_set_width(win, max_width)
+
+  -- 'wrap' is window-local, not buffer-local, so it must be scoped to this
+  -- specific window rather than set on the buffer.
+  vim.api.nvim_set_option_value("wrap", false, { win = win })
   
   -- Disable line numbers in blame window
   vim.api.nvim_set_option_value("number", false, { win = win })
