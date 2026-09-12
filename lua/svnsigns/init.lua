@@ -6,10 +6,6 @@ M.config = {
     add = { text = "█" },
     change = { text = "█" },
     delete = { text = "█" },
-    -- NOTE: topdelete/changedelete are accepted for config compatibility but
-    -- not yet distinguished by parse_diff/place_signs (both currently fall
-    -- under "delete"/"change"). Planned for a future hunk-boundary-detection
-    -- feature; see feat/topdelete-changedelete-signs.
     topdelete = { text = "█" },
     changedelete = { text = "█" },
   },
@@ -64,6 +60,8 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "SvnSignsAdd", { ctermfg = 2, fg = "Green", bold = true })
   vim.api.nvim_set_hl(0, "SvnSignsChange", { ctermfg = 3, fg = "Yellow", bold = true })
   vim.api.nvim_set_hl(0, "SvnSignsDelete", { ctermfg = 1, fg = "Red", bold = true })
+  vim.api.nvim_set_hl(0, "SvnSignsTopDelete", { link = "SvnSignsDelete", default = true })
+  vim.api.nvim_set_hl(0, "SvnSignsChangeDelete", { link = "SvnSignsChange", default = true })
   vim.api.nvim_set_hl(0, "SvnSignsBlameRevision", { link = "Number", default = true })
   vim.api.nvim_set_hl(0, "SvnSignsBlameAuthor", { link = "String", default = true })
 end
@@ -409,6 +407,28 @@ local function place_signs(bufnr, changes)
       vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
         sign_text = M.config.signs.delete.text,
         sign_hl_group = "SvnSignsDelete",
+        priority = M.config.sign_priority,
+      })
+    end
+  end
+
+  -- Place topdelete signs (pure deletion at the very start of the file)
+  for _, lnum in ipairs(changes.topdelete) do
+    if lnum > 0 then
+      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
+        sign_text = M.config.signs.topdelete.text,
+        sign_hl_group = "SvnSignsTopDelete",
+        priority = M.config.sign_priority,
+      })
+    end
+  end
+
+  -- Place changedelete signs (a change block with leftover removals)
+  for _, lnum in ipairs(changes.changedelete) do
+    if lnum > 0 then
+      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
+        sign_text = M.config.signs.changedelete.text,
+        sign_hl_group = "SvnSignsChangeDelete",
         priority = M.config.sign_priority,
       })
     end
