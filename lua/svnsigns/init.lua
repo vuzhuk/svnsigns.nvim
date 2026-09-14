@@ -374,6 +374,37 @@ local function get_blame_metadata(file)
   return result
 end
 
+-- Parse `svn blame -v` output into a table indexed by (1-based) line number:
+-- { [lnum] = { rev = "12", author = "vuzhuk", date = "2026-09-14" }, ... }
+-- Each line looks like:
+--   "    12   vuzhuk 2026-09-14 13:04:42 -0700 (Mon, 14 Sep 2026) some code"
+local function parse_blame_output(blame_output)
+  local by_line = {}
+  if not blame_output or blame_output == "" then
+    return by_line
+  end
+
+  local lnum = 0
+  for line in blame_output:gmatch("[^\r\n]+") do
+    lnum = lnum + 1
+    local rev, author, date = line:match("^%s*(%d+)%s+(%S+)%s+(%d%d%d%d%-%d%d%-%d%d)")
+    if rev then
+      by_line[lnum] = { rev = rev, author = author, date = date }
+    end
+  end
+
+  return by_line
+end
+
+-- Async: full-file `svn blame -v`, parsed into per-line metadata.
+-- callback(by_line_or_nil)
+local function get_blame_lines_async(file, callback)
+  safe_system({ "svn", "blame", "-v", file }, { text = true }, function(res)
+    local parsed = (res.code == 0 and res.stdout ~= "") and parse_blame_output(res.stdout) or nil
+    vim.schedule(function() callback(parsed) end)
+  end)
+end
+
 -- Place signs in buffer
 local function place_signs(bufnr, changes)
   -- Clear existing signs
