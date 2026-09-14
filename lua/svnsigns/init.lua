@@ -11,14 +11,27 @@ M.config = {
   },
   sign_priority = 6,
   update_debounce = 100,
+  -- Show a virtual-text blame annotation on the line the cursor is on
+  -- (gitsigns-style). Off by default, matching gitsigns' own default.
+  current_line_blame = false,
+  -- blame = { rev, author, date }
+  current_line_blame_formatter = function(blame)
+    return string.format("  %s, %s, %s", blame.author, blame.date, blame.rev)
+  end,
 }
 
 -- State
 local ns_id = vim.api.nvim_create_namespace("svnsigns")
+local blame_ns_id = vim.api.nvim_create_namespace("svnsigns_current_line_blame")
 local buffers = {}
 local timers = {}
 local blame_bufnr = nil
 local blame_winnr = nil
+
+-- Per-buffer cache of per-line blame metadata (see parse_blame_output),
+-- used to render the current-line blame virtual text without re-shelling
+-- out to `svn blame` on every cursor move. Keyed by bufnr.
+local blame_line_cache = {}
 
 -- Cache of "is this directory under SVN control?" so we don't re-shell out
 -- to `svn info` on every debounced update. Keyed by directory path.
@@ -62,6 +75,7 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "SvnSignsDelete", { ctermfg = 1, fg = "Red", bold = true })
   vim.api.nvim_set_hl(0, "SvnSignsTopDelete", { link = "SvnSignsDelete", default = true })
   vim.api.nvim_set_hl(0, "SvnSignsChangeDelete", { link = "SvnSignsChange", default = true })
+  vim.api.nvim_set_hl(0, "SvnSignsCurrentLineBlame", { link = "Comment", default = true })
   vim.api.nvim_set_hl(0, "SvnSignsBlameRevision", { link = "Number", default = true })
   vim.api.nvim_set_hl(0, "SvnSignsBlameAuthor", { link = "String", default = true })
 end
@@ -403,6 +417,41 @@ local function get_blame_lines_async(file, callback)
     local parsed = (res.code == 0 and res.stdout ~= "") and parse_blame_output(res.stdout) or nil
     vim.schedule(function() callback(parsed) end)
   end)
+end
+
+-- Refresh blame_line_cache[bufnr] from disk (async). Used to back the
+-- current-line blame virtual text; a no-op if the feature is disabled.
+local function refresh_blame_cache(bufnr, file)
+  if not M.config.current_line_blame then return end
+
+  get_blame_lines_async(file, function(by_line)
+    if not vim.api.nvim_buf_is_valid(bufnr) then return end
+    blame_line_cache[bufnr] = by_line
+  end)
+end
+
+-- Render (or clear) the current-line blame virtual text for bufnr, based
+-- on whatever is currently in blame_line_cache[bufnr] and the cursor's
+-- line in its window.
+local function render_current_line_blame(winnr, bufnr)
+  vim.api.nvim_buf_clear_namespace(bufnr, blame_ns_id, 0, -1)
+
+  if not M.config.current_line_blame then return end
+  local by_line = blame_line_cache[bufnr]
+  if not by_line then return end
+
+  local lnum = vim.api.nvim_win_get_cursor(winnr)[1]
+  local blame = by_line[lnum]
+  if not blame then return end
+
+  local ok, text = pcall(M.config.current_line_blame_formatter, blame)
+  if not ok or not text then return end
+
+  vim.api.nvim_buf_set_extmark(bufnr, blame_ns_id, lnum - 1, 0, {
+    virt_text = { { text, "SvnSignsCurrentLineBlame" } },
+    virt_text_pos = "eol",
+    hl_mode = "combine",
+  })
 end
 
 -- Place signs in buffer
