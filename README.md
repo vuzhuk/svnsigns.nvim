@@ -76,6 +76,35 @@ MiniDeps.add("vuzhuk/svnsigns.nvim")
 require("svnsigns").setup()
 ```
 
+## Configuration
+
+`setup()` accepts the following options (defaults shown):
+
+```lua
+require("svnsigns").setup({
+  signs = {
+    add = { text = "█" },
+    change = { text = "█" },
+    delete = { text = "█" },
+    topdelete = { text = "█" },
+    changedelete = { text = "█" },
+  },
+  -- Sign priority, passed straight to nvim_buf_set_extmark.
+  sign_priority = 6,
+  -- Milliseconds to wait after you stop typing before re-diffing the
+  -- buffer against the SVN base and updating signs.
+  update_debounce = 100,
+  -- Show a virtual-text blame annotation on the line the cursor is on.
+  -- Off by default; toggle at runtime with :SvnToggleCurrentLineBlame.
+  current_line_blame = false,
+  -- Formats the current-line blame annotation. Receives a table with
+  -- `rev`, `author`, and `date` fields; must return a string.
+  current_line_blame_formatter = function(blame)
+    return string.format("  %s, %s, %s", blame.author, blame.date, blame.rev)
+  end,
+})
+```
+
 ## Keymaps
 
 This plugin only defines commands — bind them to whatever keys you like, e.g.:
@@ -89,6 +118,7 @@ vim.keymap.set("n", "<leader>sl", function() require("svnsigns").show_line_log()
 vim.keymap.set("n", "<leader>sR", function() require("svnsigns").reset_buffer() end)
 vim.keymap.set("n", "<leader>sr", function() require("svnsigns").reset_hunk() end)
 vim.keymap.set("n", "<leader>fs", function() require("svnsigns").fzf_modified_files() end)
+vim.keymap.set("n", "<leader>tb", "<cmd>SvnToggleCurrentLineBlame<cr>")
 ```
 
 ## Contributing
