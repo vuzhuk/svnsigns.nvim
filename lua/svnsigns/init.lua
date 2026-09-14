@@ -283,14 +283,34 @@ local function parse_diff(diff_output)
   local at_file_start = true
   local i = 1
 
-  local function is_del(l) return l:match("^%-") and not l:match("^%-%-%-") end
-  local function is_add(l) return l:match("^%+") and not l:match("^%+%+%+") end
+  -- `diff -u` only emits literal "---"/"+++" file-header lines once, before
+  -- the first "@@" hunk marker. Inside a hunk, a deleted/added line is
+  -- unambiguously identified by its single leading "-"/"+"; the rest of the
+  -- line is arbitrary content and may itself start with "--" or "++" (e.g.
+  -- deleting a Lua/C-style comment). Excluding "^%-%-%-"/"^%+%+%+" everywhere
+  -- would wrongly treat such a deleted/added comment line as a file header
+  -- and silently drop it, so that exclusion only applies before the first
+  -- hunk marker is seen.
+  local seen_hunk = false
+  local function is_del(l)
+    if seen_hunk then
+      return l:sub(1, 1) == "-"
+    end
+    return l:match("^%-") and not l:match("^%-%-%-")
+  end
+  local function is_add(l)
+    if seen_hunk then
+      return l:sub(1, 1) == "+"
+    end
+    return l:match("^%+") and not l:match("^%+%+%+")
+  end
 
   while i <= #lines do
     local line = lines[i]
 
     if line:match("^@@ %-") then
       current_line = tonumber(line:match("^@@ %-[%d,]+ %+(%d+)")) or 0
+      seen_hunk = true
       i = i + 1
     elseif is_del(line) then
       local was_at_file_start = at_file_start
