@@ -38,6 +38,10 @@ A pure deletion (`delete`) sign, no replacement lines added:
 
 ![SvnBlame split](assets/screenshots/svn-blame.png)
 
+`:SvnLog` — SVN log for the revision history of the line under the cursor:
+
+![SvnLog output](assets/screenshots/svn-log.png)
+
 Current-line blame as virtual text, updating as the cursor moves:
 
 ![Current-line blame](assets/screenshots/svn-current-line-blame.png)
