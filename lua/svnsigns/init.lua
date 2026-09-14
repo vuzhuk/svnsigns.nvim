@@ -1017,6 +1017,27 @@ function M.reset_buffer()
   end)
 end
 
+-- Toggle the current-line blame virtual text on/off. When turning it on,
+-- immediately (re)populate the cache for the current buffer so the
+-- annotation appears without waiting for the next BufReadPost/Write.
+function M.toggle_current_line_blame()
+  M.config.current_line_blame = not M.config.current_line_blame
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  if M.config.current_line_blame then
+    local file = vim.api.nvim_buf_get_name(bufnr)
+    if file ~= "" then
+      refresh_blame_cache(bufnr, file)
+    end
+  end
+  render_current_line_blame(vim.api.nvim_get_current_win(), bufnr)
+
+  vim.notify(
+    "svnsigns: current-line blame " .. (M.config.current_line_blame and "enabled" or "disabled"),
+    vim.log.levels.INFO
+  )
+end
+
 -- Setup function
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
@@ -1047,6 +1068,20 @@ function M.setup(opts)
         return
       end
       update_signs(args.buf)
+
+      local file = vim.api.nvim_buf_get_name(args.buf)
+      if file ~= "" then
+        refresh_blame_cache(args.buf, file)
+      end
+    end,
+  })
+
+  -- Current-line blame: re-render whenever the cursor moves. Cheap (reads
+  -- from blame_line_cache, no shell-out) so no debounce needed.
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    group = augroup,
+    callback = function(args)
+      render_current_line_blame(vim.api.nvim_get_current_win(), args.buf)
     end,
   })
 
@@ -1082,6 +1117,7 @@ function M.setup(opts)
         timers[args.buf]:stop()
         timers[args.buf] = nil
       end
+      blame_line_cache[args.buf] = nil
     end,
   })
 
@@ -1108,6 +1144,8 @@ function M.setup(opts)
     update_signs(bufnr)
     vim.notify("svnsigns: cache cleared, signs refreshed", vim.log.levels.INFO)
   end, { desc = "Clear svnsigns' repo-detection cache and refresh current buffer" })
+  vim.api.nvim_create_user_command("SvnToggleCurrentLineBlame", M.toggle_current_line_blame,
+    { desc = "Toggle the current-line SVN blame virtual text" })
 end
 
 -- Get list of modified/added files in SVN
