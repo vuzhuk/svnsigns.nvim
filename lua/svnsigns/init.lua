@@ -971,6 +971,13 @@ function M.reset_hunk()
   local base_line = 0
   local buf_line = 0
   local line_map = {}  -- buffer line -> base line
+  -- buffer line where a deletion run happened -> base line of the first
+  -- line removed there. changes.delete/changes.topdelete attach their
+  -- sign to the buf_line position that follows the run (see parse_diff's
+  -- current_line, which is the same new-file line count as buf_line
+  -- here), so this is keyed the same way for a direct lookup.
+  local delete_map = {}
+  local in_delete_run = false
   
   -- Same hunk-aware rule as parse_diff/split_into_hunks: the literal
   -- "---"/"+++" file-header lines only ever appear before the first "@@"
@@ -988,13 +995,22 @@ function M.reset_hunk()
       seen_hunk = true
       base_line = tonumber(base_start) - 1
       buf_line = tonumber(buf_start) - 1
+      in_delete_run = false
     elseif line:sub(1, 1) == "+" and (seen_hunk or not line:match("^%+%+%+")) then
       buf_line = buf_line + 1
+      in_delete_run = false
       -- Added line, no base correspondence
     elseif line:sub(1, 1) == "-" and (seen_hunk or not line:match("^%-%-%-")) then
+      if not in_delete_run then
+        -- buf_line hasn't advanced past this run yet, so it still equals
+        -- the new-file position the deletion sign attaches to.
+        delete_map[buf_line + 1] = base_line + 1
+        in_delete_run = true
+      end
       base_line = base_line + 1
       -- Deleted line, no buffer correspondence
     elseif line:match("^ ") then
+      in_delete_run = false
       base_line = base_line + 1
       buf_line = buf_line + 1
       line_map[buf_line] = base_line
@@ -1043,7 +1059,10 @@ function M.reset_hunk()
     end
   elseif change_type == "delete" then
     -- Find which base line was deleted and restore it
-    local base_line_num = line_map[current_line]
+    local base_line_num = delete_map[current_line]
+    if not base_line_num then
+      base_line_num = line_map[current_line]
+    end
     if not base_line_num then
       for i = current_line - 1, math.max(1, current_line - 5), -1 do
         if line_map[i] then
