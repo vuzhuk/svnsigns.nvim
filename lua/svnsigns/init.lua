@@ -118,10 +118,39 @@ local function get_svn_base(file)
   return result
 end
 
--- Async version of get_svn_base. callback(base_content_or_nil)
+-- Cache of the SVN base ("svn cat") content per file, so the hot update
+-- path (TextChanged/BufEnter) doesn't re-shell out to `svn cat` on every
+-- debounced keystroke. The base only changes on `svn update`/checkout, not
+-- on local edits, so it's safe to reuse until explicitly invalidated (see
+-- :SvnRefresh and the DirChanged autocmd). Wrapped in a table (instead of
+-- storing the string directly) so a cached "no base" (nil) result is still
+-- distinguishable from "not cached yet".
+local svn_base_cache = {}
+
+-- Bumped every time svn_base_cache is invalidated (per-file or wholesale).
+-- An in-flight `svn cat` captures the generation it started with, so if a
+-- cache clear happens while it's still running, its result is stale and
+-- must not be written back into the cache once it lands.
+local svn_base_cache_generation = 0
+
+-- Async version of get_svn_base, backed by svn_base_cache.
+-- callback(base_content_or_nil)
 local function get_svn_base_async(file, callback)
+  local cached = svn_base_cache[file]
+  if cached ~= nil then
+    vim.schedule(function() callback(cached.base) end)
+    return
+  end
+
+  local generation = svn_base_cache_generation
   safe_system({ "svn", "cat", file }, { text = true }, function(res)
-    local base = (res.code == 0 and res.stdout ~= "") and res.stdout or nil
+    -- code == 0 alone tells us the file is versioned; an empty stdout is a
+    -- valid "empty file" base, not "no base". Only a failed `svn cat`
+    -- (unversioned/missing file) should map to nil.
+    local base = (res.code == 0) and res.stdout or nil
+    if generation == svn_base_cache_generation then
+      svn_base_cache[file] = { base = base }
+    end
     vim.schedule(function() callback(base) end)
   end)
 end
@@ -1067,9 +1096,19 @@ function M.setup(opts)
         vim.api.nvim_buf_clear_namespace(args.buf, ns_id, 0, -1)
         return
       end
-      update_signs(args.buf)
 
       local file = vim.api.nvim_buf_get_name(args.buf)
+      -- BufEnter means we're coming back to this buffer after possibly
+      -- being away for a while (e.g. running `svn update` in another
+      -- window/terminal). Drop any cached base for this file so we don't
+      -- keep diffing against a revision that's no longer current.
+      if args.event == "BufEnter" and file ~= "" then
+        svn_base_cache[file] = nil
+        svn_base_cache_generation = svn_base_cache_generation + 1
+      end
+
+      update_signs(args.buf)
+
       if file ~= "" then
         refresh_blame_cache(args.buf, file)
       end
@@ -1118,16 +1157,43 @@ function M.setup(opts)
         timers[args.buf] = nil
       end
       blame_line_cache[args.buf] = nil
+
+      local file = vim.api.nvim_buf_get_name(args.buf)
+      if file ~= "" then
+        svn_base_cache[file] = nil
+        svn_base_cache_generation = svn_base_cache_generation + 1
+      end
     end,
   })
 
   -- The svn-repo-ness of a directory can change mid-session (e.g. `svn co`,
-  -- switching worktrees). Invalidate the cache when the cwd changes so we
-  -- don't keep treating a now-valid directory as "not a repo" forever.
+  -- switching worktrees), and so can the SVN base content (e.g. `svn up`).
+  -- Invalidate both caches when the cwd changes so we don't keep serving
+  -- stale results forever.
   vim.api.nvim_create_autocmd("DirChanged", {
     group = augroup,
     callback = function()
       svn_repo_cache = {}
+      svn_base_cache = {}
+      svn_base_cache_generation = svn_base_cache_generation + 1
+    end,
+  })
+
+  -- Regaining editor focus is the common moment an external `svn
+  -- update`/`commit`/`switch` (run in another terminal/window while you
+  -- stayed in the same buffer) would have happened. Drop the whole base
+  -- cache so the next diff re-fetches instead of serving stale content,
+  -- and refresh the current buffer's signs right away instead of waiting
+  -- for the next edit, re-entry, or :SvnRefresh.
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = augroup,
+    callback = function()
+      svn_base_cache = {}
+      svn_base_cache_generation = svn_base_cache_generation + 1
+      local bufnr = vim.api.nvim_get_current_buf()
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        update_signs(bufnr)
+      end
     end,
   })
 
@@ -1140,6 +1206,8 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("SvnFiles", M.fzf_modified_files, {})
   vim.api.nvim_create_user_command("SvnRefresh", function()
     svn_repo_cache = {}
+    svn_base_cache = {}
+    svn_base_cache_generation = svn_base_cache_generation + 1
     local bufnr = vim.api.nvim_get_current_buf()
     update_signs(bufnr)
     vim.notify("svnsigns: cache cleared, signs refreshed", vim.log.levels.INFO)
