@@ -105,6 +105,27 @@ require("svnsigns").setup({
 })
 ```
 
+## Highlight Groups
+
+Signs and the current-line blame annotation are colored via these groups,
+which you can override in your colorscheme/config:
+
+| Group                      | Default link / color                  |
+| --------------------------- | -------------------------------------- |
+| `SvnSignsAdd`               | Green, bold                            |
+| `SvnSignsChange`            | Yellow, bold                           |
+| `SvnSignsDelete`            | Red, bold                              |
+| `SvnSignsTopDelete`         | links to `SvnSignsDelete`               |
+| `SvnSignsChangeDelete`      | links to `SvnSignsChange`               |
+| `SvnSignsCurrentLineBlame`  | links to `Comment`                      |
+| `SvnSignsBlameRevision`     | links to `Number` (used in `:SvnBlame`) |
+| `SvnSignsBlameAuthor`       | links to `String` (used in `:SvnBlame`) |
+
+```lua
+-- Example: override after setup()
+vim.api.nvim_set_hl(0, "SvnSignsAdd", { fg = "#a6e3a1" })
+```
+
 ## Keymaps
 
 This plugin only defines commands — bind them to whatever keys you like, e.g.:
