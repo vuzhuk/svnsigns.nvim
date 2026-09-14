@@ -979,7 +979,11 @@ function M.reset_hunk()
   -- mapping and :SvnResetHunk can restore the wrong content.
   local seen_hunk = false
   for line in diff:gmatch("[^\r\n]+") do
-    local base_start, buf_start = line:match("^@@ %-(%d+),[%d]+ %+(%d+)")
+    -- diff -u omits the ",count" suffix when a range is exactly one line
+    -- (e.g. "@@ -1 +0,0 @@"), so both counts must be optional here or
+    -- single-line hunks never flip seen_hunk and a deleted/added comment
+    -- line right after them would still be wrongly filtered as a header.
+    local base_start, buf_start = line:match("^@@ %-(%d+),?%d* %+(%d+)")
     if base_start and buf_start then
       seen_hunk = true
       base_line = tonumber(base_start) - 1
