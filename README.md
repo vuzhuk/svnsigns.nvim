@@ -43,6 +43,35 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
+With [packer.nvim](https://github.com/wbthomason/packer.nvim):
+
+```lua
+use({
+  "vuzhuk/svnsigns.nvim",
+  config = function()
+    require("svnsigns").setup()
+  end,
+})
+```
+
+With [vim-plug](https://github.com/junegunn/vim-plug):
+
+```vim
+Plug 'vuzhuk/svnsigns.nvim'
+```
+
+```vim
+" after plug#end()
+lua require("svnsigns").setup()
+```
+
+With [mini.deps](https://github.com/echasnovski/mini.deps):
+
+```lua
+MiniDeps.add("vuzhuk/svnsigns.nvim")
+require("svnsigns").setup()
+```
+
 ## Keymaps
 
 This plugin only defines commands — bind them to whatever keys you like, e.g.:
