@@ -1139,12 +1139,14 @@ function M.setup(opts)
   })
 
   -- The svn-repo-ness of a directory can change mid-session (e.g. `svn co`,
-  -- switching worktrees). Invalidate the cache when the cwd changes so we
-  -- don't keep treating a now-valid directory as "not a repo" forever.
+  -- switching worktrees), and so can the SVN base content (e.g. `svn up`).
+  -- Invalidate both caches when the cwd changes so we don't keep serving
+  -- stale results forever.
   vim.api.nvim_create_autocmd("DirChanged", {
     group = augroup,
     callback = function()
       svn_repo_cache = {}
+      svn_base_cache = {}
     end,
   })
 
@@ -1157,6 +1159,7 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("SvnFiles", M.fzf_modified_files, {})
   vim.api.nvim_create_user_command("SvnRefresh", function()
     svn_repo_cache = {}
+    svn_base_cache = {}
     local bufnr = vim.api.nvim_get_current_buf()
     update_signs(bufnr)
     vim.notify("svnsigns: cache cleared, signs refreshed", vim.log.levels.INFO)
