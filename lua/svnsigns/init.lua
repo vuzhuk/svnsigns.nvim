@@ -1003,8 +1003,12 @@ function M.reset_hunk()
     elseif line:sub(1, 1) == "-" and (seen_hunk or not line:match("^%-%-%-")) then
       if not in_delete_run then
         -- buf_line hasn't advanced past this run yet, so it still equals
-        -- the new-file position the deletion sign attaches to.
-        delete_map[buf_line + 1] = base_line + 1
+        -- the new-file position the deletion sign attaches to. Clamp to 1
+        -- to match parse_diff's topdelete attach point (math.max(.., 1)):
+        -- a deletion-only hunk that empties the buffer starts from
+        -- "@@ -1,1 +0,0 @@", leaving buf_line at 0 here, but the sign is
+        -- still attached to line 1 since there's no earlier line.
+        delete_map[math.max(buf_line + 1, 1)] = base_line + 1
         in_delete_run = true
       end
       base_line = base_line + 1
@@ -1026,6 +1030,9 @@ function M.reset_hunk()
     if lnum == current_line then change_type = "change" break end
   end
   for _, lnum in ipairs(changes.delete) do
+    if lnum == current_line then change_type = "delete" break end
+  end
+  for _, lnum in ipairs(changes.topdelete) do
     if lnum == current_line then change_type = "delete" break end
   end
 
