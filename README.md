@@ -19,6 +19,29 @@ integration for SVN working copies.
   content) and re-scan the current buffer (useful after `svn update` or
   `svn checkout`-ing a new working copy).
 
+## Screenshots
+
+Sign column showing every hunk type at once (add, change, delete, topdelete,
+changedelete):
+
+![Sign column overview](assets/screenshots/sign-column-overview.png)
+
+A pure deletion (`delete`) sign, no replacement lines added:
+
+![Delete sign](assets/screenshots/delete-sign.png)
+
+`:SvnPreview` — floating diff of the hunk under the cursor:
+
+![SvnPreview floating diff](assets/screenshots/svn-preview.png)
+
+`:SvnBlame` — full-buffer blame in a synced vertical split:
+
+![SvnBlame split](assets/screenshots/svn-blame.png)
+
+Current-line blame as virtual text, updating as the cursor moves:
+
+![Current-line blame](assets/screenshots/svn-current-line-blame.png)
+
 ## Requirements
 
 - Neovim 0.10+ (uses `vim.system` for async shell calls)
