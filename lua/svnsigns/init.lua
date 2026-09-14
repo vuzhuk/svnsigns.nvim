@@ -403,7 +403,13 @@ local function split_into_hunks(diff_output)
         new_count = tonumber(new_count) or 1,
         lines = { line },
       }
-    elseif current and not line:match("^%-%-%-") and not line:match("^%+%+%+") then
+    elseif current then
+      -- The literal "--- a/file"/"+++ b/file" file-header lines only ever
+      -- appear before the first "@@" marker, i.e. while current is still
+      -- nil, so there's no need (and it's actively wrong) to filter lines
+      -- matching that pattern here: a real deleted/added comment line
+      -- (e.g. "--- some comment") inside a hunk would otherwise be dropped
+      -- from the preview. See parse_diff's is_del/is_add for the same fix.
       table.insert(current.lines, line)
     end
   end
