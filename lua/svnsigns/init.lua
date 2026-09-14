@@ -1084,9 +1084,18 @@ function M.setup(opts)
         vim.api.nvim_buf_clear_namespace(args.buf, ns_id, 0, -1)
         return
       end
-      update_signs(args.buf)
 
       local file = vim.api.nvim_buf_get_name(args.buf)
+      -- BufEnter means we're coming back to this buffer after possibly
+      -- being away for a while (e.g. running `svn update` in another
+      -- window/terminal). Drop any cached base for this file so we don't
+      -- keep diffing against a revision that's no longer current.
+      if args.event == "BufEnter" and file ~= "" then
+        svn_base_cache[file] = nil
+      end
+
+      update_signs(args.buf)
+
       if file ~= "" then
         refresh_blame_cache(args.buf, file)
       end
@@ -1135,6 +1144,11 @@ function M.setup(opts)
         timers[args.buf] = nil
       end
       blame_line_cache[args.buf] = nil
+
+      local file = vim.api.nvim_buf_get_name(args.buf)
+      if file ~= "" then
+        svn_base_cache[file] = nil
+      end
     end,
   })
 
@@ -1146,6 +1160,17 @@ function M.setup(opts)
     group = augroup,
     callback = function()
       svn_repo_cache = {}
+      svn_base_cache = {}
+    end,
+  })
+
+  -- Regaining editor focus is the common moment an external `svn
+  -- update`/`commit`/`switch` (run in another terminal/window while you
+  -- stayed in the same buffer) would have happened. Drop the whole base
+  -- cache so the next diff re-fetches instead of serving stale content.
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = augroup,
+    callback = function()
       svn_base_cache = {}
     end,
   })
