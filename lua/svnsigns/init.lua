@@ -118,10 +118,27 @@ local function get_svn_base(file)
   return result
 end
 
--- Async version of get_svn_base. callback(base_content_or_nil)
+-- Cache of the SVN base ("svn cat") content per file, so the hot update
+-- path (TextChanged/BufEnter) doesn't re-shell out to `svn cat` on every
+-- debounced keystroke. The base only changes on `svn update`/checkout, not
+-- on local edits, so it's safe to reuse until explicitly invalidated (see
+-- :SvnRefresh and the DirChanged autocmd). Wrapped in a table (instead of
+-- storing the string directly) so a cached "no base" (nil) result is still
+-- distinguishable from "not cached yet".
+local svn_base_cache = {}
+
+-- Async version of get_svn_base, backed by svn_base_cache.
+-- callback(base_content_or_nil)
 local function get_svn_base_async(file, callback)
+  local cached = svn_base_cache[file]
+  if cached ~= nil then
+    vim.schedule(function() callback(cached.base) end)
+    return
+  end
+
   safe_system({ "svn", "cat", file }, { text = true }, function(res)
     local base = (res.code == 0 and res.stdout ~= "") and res.stdout or nil
+    svn_base_cache[file] = { base = base }
     vim.schedule(function() callback(base) end)
   end)
 end
