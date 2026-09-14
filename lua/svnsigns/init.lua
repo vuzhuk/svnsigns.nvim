@@ -287,7 +287,7 @@ local function parse_diff(diff_output)
   -- the first "@@" hunk marker. Inside a hunk, a deleted/added line is
   -- unambiguously identified by its single leading "-"/"+"; the rest of the
   -- line is arbitrary content and may itself start with "--" or "++" (e.g.
-  -- deleting a Lua/C-style comment). Excluding "^%-%-%-"/"^%+%+%+" everywhere
+  -- deleting a Lua/SQL comment). Excluding "^%-%-%-"/"^%+%+%+" everywhere
   -- would wrongly treat such a deleted/added comment line as a file header
   -- and silently drop it, so that exclusion only applies before the first
   -- hunk marker is seen.
@@ -972,15 +972,22 @@ function M.reset_hunk()
   local buf_line = 0
   local line_map = {}  -- buffer line -> base line
   
+  -- Same hunk-aware rule as parse_diff/split_into_hunks: the literal
+  -- "---"/"+++" file-header lines only ever appear before the first "@@"
+  -- marker, so the exclusion below must stop applying once inside a hunk,
+  -- otherwise a real deleted/added comment line throws off this line
+  -- mapping and :SvnResetHunk can restore the wrong content.
+  local seen_hunk = false
   for line in diff:gmatch("[^\r\n]+") do
     local base_start, buf_start = line:match("^@@ %-(%d+),[%d]+ %+(%d+)")
     if base_start and buf_start then
+      seen_hunk = true
       base_line = tonumber(base_start) - 1
       buf_line = tonumber(buf_start) - 1
-    elseif line:match("^%+") and not line:match("^%+%+%+") then
+    elseif line:sub(1, 1) == "+" and (seen_hunk or not line:match("^%+%+%+")) then
       buf_line = buf_line + 1
       -- Added line, no base correspondence
-    elseif line:match("^%-") and not line:match("^%-%-%-") then
+    elseif line:sub(1, 1) == "-" and (seen_hunk or not line:match("^%-%-%-")) then
       base_line = base_line + 1
       -- Deleted line, no buffer correspondence
     elseif line:match("^ ") then
