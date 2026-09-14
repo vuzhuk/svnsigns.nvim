@@ -283,14 +283,34 @@ local function parse_diff(diff_output)
   local at_file_start = true
   local i = 1
 
-  local function is_del(l) return l:match("^%-") and not l:match("^%-%-%-") end
-  local function is_add(l) return l:match("^%+") and not l:match("^%+%+%+") end
+  -- `diff -u` only emits literal "---"/"+++" file-header lines once, before
+  -- the first "@@" hunk marker. Inside a hunk, a deleted/added line is
+  -- unambiguously identified by its single leading "-"/"+"; the rest of the
+  -- line is arbitrary content and may itself start with "--" or "++" (e.g.
+  -- deleting a Lua/SQL comment). Excluding "^%-%-%-"/"^%+%+%+" everywhere
+  -- would wrongly treat such a deleted/added comment line as a file header
+  -- and silently drop it, so that exclusion only applies before the first
+  -- hunk marker is seen.
+  local seen_hunk = false
+  local function is_del(l)
+    if seen_hunk then
+      return l:sub(1, 1) == "-"
+    end
+    return l:match("^%-") and not l:match("^%-%-%-")
+  end
+  local function is_add(l)
+    if seen_hunk then
+      return l:sub(1, 1) == "+"
+    end
+    return l:match("^%+") and not l:match("^%+%+%+")
+  end
 
   while i <= #lines do
     local line = lines[i]
 
     if line:match("^@@ %-") then
       current_line = tonumber(line:match("^@@ %-[%d,]+ %+(%d+)")) or 0
+      seen_hunk = true
       i = i + 1
     elseif is_del(line) then
       local was_at_file_start = at_file_start
@@ -383,7 +403,13 @@ local function split_into_hunks(diff_output)
         new_count = tonumber(new_count) or 1,
         lines = { line },
       }
-    elseif current and not line:match("^%-%-%-") and not line:match("^%+%+%+") then
+    elseif current then
+      -- The literal "--- a/file"/"+++ b/file" file-header lines only ever
+      -- appear before the first "@@" marker, i.e. while current is still
+      -- nil, so there's no need (and it's actively wrong) to filter lines
+      -- matching that pattern here: a real deleted/added comment line
+      -- (e.g. "--- some comment") inside a hunk would otherwise be dropped
+      -- from the preview. See parse_diff's is_del/is_add for the same fix.
       table.insert(current.lines, line)
     end
   end
@@ -945,19 +971,50 @@ function M.reset_hunk()
   local base_line = 0
   local buf_line = 0
   local line_map = {}  -- buffer line -> base line
+  -- buffer line where a deletion run happened -> base line of the first
+  -- line removed there. changes.delete/changes.topdelete attach their
+  -- sign to the buf_line position that follows the run (see parse_diff's
+  -- current_line, which is the same new-file line count as buf_line
+  -- here), so this is keyed the same way for a direct lookup.
+  local delete_map = {}
+  local in_delete_run = false
   
+  -- Same hunk-aware rule as parse_diff/split_into_hunks: the literal
+  -- "---"/"+++" file-header lines only ever appear before the first "@@"
+  -- marker, so the exclusion below must stop applying once inside a hunk,
+  -- otherwise a real deleted/added comment line throws off this line
+  -- mapping and :SvnResetHunk can restore the wrong content.
+  local seen_hunk = false
   for line in diff:gmatch("[^\r\n]+") do
-    local base_start, buf_start = line:match("^@@ %-(%d+),[%d]+ %+(%d+)")
+    -- diff -u omits the ",count" suffix when a range is exactly one line
+    -- (e.g. "@@ -1 +0,0 @@"), so both counts must be optional here or
+    -- single-line hunks never flip seen_hunk and a deleted/added comment
+    -- line right after them would still be wrongly filtered as a header.
+    local base_start, buf_start = line:match("^@@ %-(%d+),?%d* %+(%d+)")
     if base_start and buf_start then
+      seen_hunk = true
       base_line = tonumber(base_start) - 1
       buf_line = tonumber(buf_start) - 1
-    elseif line:match("^%+") and not line:match("^%+%+%+") then
+      in_delete_run = false
+    elseif line:sub(1, 1) == "+" and (seen_hunk or not line:match("^%+%+%+")) then
       buf_line = buf_line + 1
+      in_delete_run = false
       -- Added line, no base correspondence
-    elseif line:match("^%-") and not line:match("^%-%-%-") then
+    elseif line:sub(1, 1) == "-" and (seen_hunk or not line:match("^%-%-%-")) then
+      if not in_delete_run then
+        -- buf_line hasn't advanced past this run yet, so it still equals
+        -- the new-file position the deletion sign attaches to. Clamp to 1
+        -- to match parse_diff's topdelete attach point (math.max(.., 1)):
+        -- a deletion-only hunk that empties the buffer starts from
+        -- "@@ -1,1 +0,0 @@", leaving buf_line at 0 here, but the sign is
+        -- still attached to line 1 since there's no earlier line.
+        delete_map[math.max(buf_line + 1, 1)] = base_line + 1
+        in_delete_run = true
+      end
       base_line = base_line + 1
       -- Deleted line, no buffer correspondence
     elseif line:match("^ ") then
+      in_delete_run = false
       base_line = base_line + 1
       buf_line = buf_line + 1
       line_map[buf_line] = base_line
@@ -973,6 +1030,9 @@ function M.reset_hunk()
     if lnum == current_line then change_type = "change" break end
   end
   for _, lnum in ipairs(changes.delete) do
+    if lnum == current_line then change_type = "delete" break end
+  end
+  for _, lnum in ipairs(changes.topdelete) do
     if lnum == current_line then change_type = "delete" break end
   end
 
@@ -1006,7 +1066,10 @@ function M.reset_hunk()
     end
   elseif change_type == "delete" then
     -- Find which base line was deleted and restore it
-    local base_line_num = line_map[current_line]
+    local base_line_num = delete_map[current_line]
+    if not base_line_num then
+      base_line_num = line_map[current_line]
+    end
     if not base_line_num then
       for i = current_line - 1, math.max(1, current_line - 5), -1 do
         if line_map[i] then
