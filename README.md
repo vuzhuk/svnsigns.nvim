@@ -5,15 +5,19 @@ integration for SVN working copies.
 
 ## Features
 
-- Sign-column markers for added/changed/deleted lines against the SVN base
-  revision, updated asynchronously as you type (no UI blocking).
+- Sign-column markers for added/changed/deleted/topdelete/changedelete lines
+  against the SVN base revision, updated asynchronously as you type (no UI
+  blocking).
+- Current-line blame shown as virtual text, gitsigns-style (opt-in via
+  `current_line_blame = true`, or toggle with `:SvnToggleCurrentLineBlame`).
 - `:SvnBlame` — inline blame in a synced vertical split.
 - `:SvnLog` — SVN log for the revision at the cursor line.
-- `:SvnPreview` — floating diff preview of unsaved changes.
+- `:SvnPreview` — floating diff preview of the hunk under the cursor.
 - `:SvnResetHunk` / `:SvnRevert` — revert a single hunk or the whole buffer.
 - `:SvnFiles` — browse modified SVN files via `fzf-lua`.
-- `:SvnRefresh` — clear the internal repo-detection cache and re-scan the
-  current buffer (useful after `svn checkout`-ing a new working copy).
+- `:SvnRefresh` — clear svnsigns' internal caches (repo-detection, SVN base
+  content) and re-scan the current buffer (useful after `svn update` or
+  `svn checkout`-ing a new working copy).
 
 ## Requirements
 
