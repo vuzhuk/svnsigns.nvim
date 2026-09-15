@@ -16,6 +16,10 @@ local buffers = {}
 -- Per-buffer debounce timers for the TextChanged(-I) update path.
 local timers = {}
 
+-- Per-buffer update generations so stale async callbacks cannot overwrite a
+-- newer diff/sign state.
+local update_generations = {}
+
 -- The last-computed changes table for bufnr (add/change/delete/topdelete/
 -- changedelete line lists), or nil if none yet.
 function M.get_changes(bufnr)
@@ -72,11 +76,16 @@ function M.update_signs(bufnr)
     return
   end
 
+  update_generations[bufnr] = (update_generations[bufnr] or 0) + 1
+  local generation = update_generations[bufnr]
+
   svn.is_svn_repo_async(file, function(is_repo)
+    if update_generations[bufnr] ~= generation then return end
     if not is_repo then return end
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
     svn.get_buffer_diff_async(bufnr, file, function(diff_output)
+      if update_generations[bufnr] ~= generation then return end
       if not diff_output then return end
       if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
@@ -104,6 +113,7 @@ end
 -- Drop all per-buffer state for bufnr (called on BufDelete).
 function M.cleanup_buffer(bufnr)
   buffers[bufnr] = nil
+  update_generations[bufnr] = nil
   if timers[bufnr] then
     timers[bufnr]:stop()
     timers[bufnr] = nil
