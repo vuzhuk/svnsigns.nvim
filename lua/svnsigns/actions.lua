@@ -219,7 +219,11 @@ function M.reset_buffer()
 
   vim.ui.input({ prompt = "Revert all changes? (y/N): " }, function(input)
     if input == "y" or input == "Y" then
-      vim.fn.system("svn revert " .. vim.fn.shellescape(file))
+      local output = vim.fn.system("svn revert " .. vim.fn.shellescape(file))
+      if vim.v.shell_error ~= 0 then
+        vim.notify("Failed to revert: " .. output, vim.log.levels.ERROR)
+        return
+      end
       vim.cmd("checktime")
       vim.notify("Reverted: " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
     end
