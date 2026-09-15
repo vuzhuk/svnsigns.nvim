@@ -1,6 +1,7 @@
 local config = require("svnsigns.config")
 local diff = require("svnsigns.diff")
 local svn = require("svnsigns.svn")
+local signs = require("svnsigns.signs")
 
 local M = {}
 
@@ -9,10 +10,7 @@ local M = {}
 M.config = config.options
 
 -- State
-local ns_id = vim.api.nvim_create_namespace("svnsigns")
 local blame_ns_id = vim.api.nvim_create_namespace("svnsigns_current_line_blame")
-local buffers = {}
-local timers = {}
 local blame_bufnr = nil
 local blame_winnr = nil
 
@@ -54,154 +52,9 @@ local function render_current_line_blame(winnr, bufnr)
   })
 end
 
--- Place signs in buffer
-local function place_signs(bufnr, changes)
-  -- Clear existing signs
-  vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
-
-  -- Place add signs
-  for _, lnum in ipairs(changes.add) do
-    if lnum > 0 then
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = config.options.signs.add.text,
-        sign_hl_group = "SvnSignsAdd",
-        priority = config.options.sign_priority,
-      })
-    end
-  end
-
-  -- Place change signs
-  for _, lnum in ipairs(changes.change) do
-    if lnum > 0 then
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = config.options.signs.change.text,
-        sign_hl_group = "SvnSignsChange",
-        priority = config.options.sign_priority,
-      })
-    end
-  end
-
-  -- Place delete signs
-  for _, lnum in ipairs(changes.delete) do
-    if lnum > 0 then
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = config.options.signs.delete.text,
-        sign_hl_group = "SvnSignsDelete",
-        priority = config.options.sign_priority,
-      })
-    end
-  end
-
-  -- Place topdelete signs (pure deletion at the very start of the file)
-  for _, lnum in ipairs(changes.topdelete) do
-    if lnum > 0 then
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = config.options.signs.topdelete.text,
-        sign_hl_group = "SvnSignsTopDelete",
-        priority = config.options.sign_priority,
-      })
-    end
-  end
-
-  -- Place changedelete signs (a change block with leftover removals)
-  for _, lnum in ipairs(changes.changedelete) do
-    if lnum > 0 then
-      vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = config.options.signs.changedelete.text,
-        sign_hl_group = "SvnSignsChangeDelete",
-        priority = config.options.sign_priority,
-      })
-    end
-  end
-end
-
--- Update signs for buffer (async: never blocks the main thread)
-local function update_signs(bufnr)
-  -- Skip non-normal buffers (netrw, help, etc.)
-  local buftype = vim.api.nvim_get_option_value("buftype", { buf = bufnr })
-  local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
-  
-  if buftype ~= "" or filetype == "netrw" or filetype == "help" then
-    -- Clear any signs from special buffers
-    vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
-    return
-  end
-  
-  local file = vim.api.nvim_buf_get_name(bufnr)
-  if file == "" or not vim.fn.filereadable(file) then
-    return
-  end
-
-  svn.is_svn_repo_async(file, function(is_repo)
-    if not is_repo then return end
-    if not vim.api.nvim_buf_is_valid(bufnr) then return end
-
-    svn.get_buffer_diff_async(bufnr, file, function(diff_output)
-      if not diff_output then return end
-      if not vim.api.nvim_buf_is_valid(bufnr) then return end
-
-      local changes = diff.parse_diff(diff_output)
-      place_signs(bufnr, changes)
-      buffers[bufnr] = changes
-    end)
-  end)
-end
-
--- Debounced update
-local function debounced_update(bufnr)
-  if timers[bufnr] then
-    timers[bufnr]:stop()
-  end
-
-  timers[bufnr] = vim.defer_fn(function()
-    if vim.api.nvim_buf_is_valid(bufnr) then
-      update_signs(bufnr)
-    end
-    timers[bufnr] = nil
-  end, config.options.update_debounce)
-end
-
--- Navigate to next hunk
-function M.next_hunk()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local changes = buffers[bufnr]
-  if not changes then return end
-
-  local all_changes = {}
-  for _, lnum in ipairs(changes.add) do table.insert(all_changes, lnum) end
-  for _, lnum in ipairs(changes.change) do table.insert(all_changes, lnum) end
-  for _, lnum in ipairs(changes.delete) do table.insert(all_changes, lnum) end
-  table.sort(all_changes)
-
-  local current_line = vim.api.nvim_win_get_cursor(0)[1]
-  for _, lnum in ipairs(all_changes) do
-    if lnum > current_line then
-      vim.api.nvim_win_set_cursor(0, { lnum, 0 })
-      return
-    end
-  end
-end
-
--- Navigate to previous hunk
-function M.prev_hunk()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local changes = buffers[bufnr]
-  if not changes then return end
-
-  local all_changes = {}
-  for _, lnum in ipairs(changes.add) do table.insert(all_changes, lnum) end
-  for _, lnum in ipairs(changes.change) do table.insert(all_changes, lnum) end
-  for _, lnum in ipairs(changes.delete) do table.insert(all_changes, lnum) end
-  table.sort(all_changes, function(a, b) return a > b end)
-
-  local current_line = vim.api.nvim_win_get_cursor(0)[1]
-  for _, lnum in ipairs(all_changes) do
-    if lnum < current_line then
-      vim.api.nvim_win_set_cursor(0, { lnum, 0 })
-      return
-    end
-  end
-end
+-- Kept for backwards compatibility.
+M.next_hunk = signs.next_hunk
+M.prev_hunk = signs.prev_hunk
 
 -- Preview the hunk under the cursor (gitsigns-style: just the relevant hunk,
 -- not the whole-file diff).
@@ -462,7 +315,7 @@ function M.reset_hunk()
   end
 
   local current_line = vim.api.nvim_win_get_cursor(0)[1]
-  local changes = buffers[bufnr]
+  local changes = signs.get_changes(bufnr)
   
   if not changes then
     vim.notify("No changes detected", vim.log.levels.INFO)
@@ -610,7 +463,7 @@ function M.reset_hunk()
   -- Update signs
   vim.defer_fn(function()
     if vim.api.nvim_buf_is_valid(bufnr) then
-      update_signs(bufnr)
+      signs.update_signs(bufnr)
     end
   end, 50)
 end
@@ -660,7 +513,7 @@ function M.setup(opts)
   -- Update signs for current buffer if it exists
   local current_buf = vim.api.nvim_get_current_buf()
   if vim.api.nvim_buf_is_valid(current_buf) then
-    update_signs(current_buf)
+    signs.update_signs(current_buf)
   end
 
   -- All autocmds live in one augroup so re-running setup() (e.g. on a
@@ -677,7 +530,7 @@ function M.setup(opts)
       
       if buftype ~= "" or filetype == "netrw" or filetype == "help" then
         -- Clear any signs from non-file buffers
-        vim.api.nvim_buf_clear_namespace(args.buf, ns_id, 0, -1)
+        signs.clear_signs(args.buf)
         return
       end
 
@@ -690,7 +543,7 @@ function M.setup(opts)
         svn.invalidate_base_cache_for_file(file)
       end
 
-      update_signs(args.buf)
+      signs.update_signs(args.buf)
 
       if file ~= "" then
         refresh_blame_cache(args.buf, file)
@@ -717,7 +570,7 @@ function M.setup(opts)
       if buftype ~= "" or filetype == "netrw" or filetype == "help" then
         return
       end
-      debounced_update(args.buf)
+      signs.debounced_update(args.buf)
     end,
   })
 
@@ -726,7 +579,7 @@ function M.setup(opts)
     group = augroup,
     pattern = { "netrw", "help", "qf" },
     callback = function(args)
-      vim.api.nvim_buf_clear_namespace(args.buf, ns_id, 0, -1)
+      signs.clear_signs(args.buf)
     end,
   })
 
@@ -734,11 +587,7 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd("BufDelete", {
     group = augroup,
     callback = function(args)
-      buffers[args.buf] = nil
-      if timers[args.buf] then
-        timers[args.buf]:stop()
-        timers[args.buf] = nil
-      end
+      signs.cleanup_buffer(args.buf)
       blame_line_cache[args.buf] = nil
 
       local file = vim.api.nvim_buf_get_name(args.buf)
@@ -772,7 +621,7 @@ function M.setup(opts)
       svn.invalidate_base_cache()
       local bufnr = vim.api.nvim_get_current_buf()
       if vim.api.nvim_buf_is_valid(bufnr) then
-        update_signs(bufnr)
+        signs.update_signs(bufnr)
       end
     end,
   })
@@ -788,7 +637,7 @@ function M.setup(opts)
     svn.invalidate_repo_cache()
     svn.invalidate_base_cache()
     local bufnr = vim.api.nvim_get_current_buf()
-    update_signs(bufnr)
+    signs.update_signs(bufnr)
     vim.notify("svnsigns: cache cleared, signs refreshed", vim.log.levels.INFO)
   end, { desc = "Clear svnsigns' repo-detection cache and refresh current buffer" })
   vim.api.nvim_create_user_command("SvnToggleCurrentLineBlame", M.toggle_current_line_blame,
