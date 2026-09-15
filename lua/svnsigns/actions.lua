@@ -158,7 +158,30 @@ function M.reset_hunk()
     return
   end
 
-  if change_type == "add" then
+  local hunks = diff.split_into_hunks(diff_text)
+  local current_hunk = diff.find_hunk_at_line(hunks, current_line)
+  if not current_hunk and current_line == 1 then
+    for _, hunk in ipairs(hunks) do
+      local header = diff.match_hunk_header(hunk.lines[1])
+      if header and header.new_start == 0 and header.new_count == 0 then
+        current_hunk = hunk
+        break
+      end
+    end
+  end
+
+  local hunk_header = current_hunk and diff.match_hunk_header(current_hunk.lines[1])
+  if hunk_header then
+    local replacement = {}
+    for i = hunk_header.base_start, hunk_header.base_start + hunk_header.base_count - 1 do
+      replacement[#replacement + 1] = base_lines[i]
+    end
+
+    local start_idx = math.max(hunk_header.new_start - 1, 0)
+    local end_idx = math.max(hunk_header.new_start + hunk_header.new_count - 1, 0)
+    vim.api.nvim_buf_set_lines(bufnr, start_idx, end_idx, false, replacement)
+    vim.notify("Reverted hunk", vim.log.levels.INFO)
+  elseif change_type == "add" then
     -- Remove the added line
     vim.api.nvim_buf_set_lines(bufnr, current_line - 1, current_line, false, {})
     vim.notify("Removed added line", vim.log.levels.INFO)
