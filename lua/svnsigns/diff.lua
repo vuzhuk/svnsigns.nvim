@@ -21,7 +21,7 @@ local M = {}
 -- nil if `line` isn't a hunk header. Missing counts default to 1, matching
 -- diff -u's own convention for a single-line range.
 function M.match_hunk_header(line)
-  local base_range, new_range = line:match("^@@ %-(%d+,?%d*) %+(%d+,?%d*) @@")
+  local base_range, new_range = line:match("^@@ %-(%d+[,%d]*) %+(%d+[,%d]*) @@")
   if not base_range then
     return nil
   end

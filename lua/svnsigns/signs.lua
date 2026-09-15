@@ -30,6 +30,7 @@ end
 -- callers that need to blank out a buffer that shouldn't have signs at all,
 -- e.g. netrw/help buffers).
 function M.clear_signs(bufnr)
+  update_generations[bufnr] = (update_generations[bufnr] or 0) + 1
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 end
 

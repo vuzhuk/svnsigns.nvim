@@ -31,8 +31,8 @@ local function safe_system(cmd, opts, on_exit)
   end
 end
 
--- Cache of "is this directory under SVN control?" so we don't re-shell out
--- to `svn info` on every debounced update. Keyed by directory path.
+-- Cache of "is this file under SVN control?" so we don't re-shell out to
+-- `svn info` on every debounced update. Keyed by file path.
 local svn_repo_cache = {}
 
 -- Cache of the SVN base ("svn cat") content per file, so the hot update
@@ -81,20 +81,19 @@ function M.is_svn_repo(file)
   return result and result ~= ""
 end
 
--- Async version of is_svn_repo, cached per-directory so the hot update path
+-- Async version of is_svn_repo, cached per-file so the hot update path
 -- (TextChanged/BufEnter) doesn't shell out to `svn info` on every keystroke.
 -- callback(bool)
 function M.is_svn_repo_async(file, callback)
-  local dir = vim.fn.fnamemodify(file, ":h")
-  local cached = svn_repo_cache[dir]
+  local cached = svn_repo_cache[file]
   if cached ~= nil then
     callback(cached)
     return
   end
 
-  safe_system({ "svn", "info", dir }, { text = true }, function(res)
+  safe_system({ "svn", "info", file }, { text = true }, function(res)
     local is_repo = res.code == 0 and res.stdout ~= nil and res.stdout ~= ""
-    svn_repo_cache[dir] = is_repo
+    svn_repo_cache[file] = is_repo
     vim.schedule(function() callback(is_repo) end)
   end)
 end
