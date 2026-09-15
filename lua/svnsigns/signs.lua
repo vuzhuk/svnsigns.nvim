@@ -33,6 +33,11 @@ function M.clear_signs(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 end
 
+local function clear_buffer_state(bufnr)
+  M.clear_signs(bufnr)
+  buffers[bufnr] = nil
+end
+
 -- Place signs in buffer
 local function place_signs(bufnr, changes)
   -- Clear existing signs
@@ -67,12 +72,13 @@ function M.update_signs(bufnr)
 
   if buftype ~= "" or filetype == "netrw" or filetype == "help" then
     -- Clear any signs from special buffers
-    M.clear_signs(bufnr)
+    clear_buffer_state(bufnr)
     return
   end
 
   local file = vim.api.nvim_buf_get_name(bufnr)
   if file == "" or not vim.fn.filereadable(file) then
+    clear_buffer_state(bufnr)
     return
   end
 
@@ -81,12 +87,18 @@ function M.update_signs(bufnr)
 
   svn.is_svn_repo_async(file, function(is_repo)
     if update_generations[bufnr] ~= generation then return end
-    if not is_repo then return end
+    if not is_repo then
+      clear_buffer_state(bufnr)
+      return
+    end
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
     svn.get_buffer_diff_async(bufnr, file, function(diff_output)
       if update_generations[bufnr] ~= generation then return end
-      if not diff_output then return end
+      if not diff_output then
+        clear_buffer_state(bufnr)
+        return
+      end
       if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
       local changes = diff.parse_diff(diff_output)
@@ -130,6 +142,8 @@ function M.next_hunk()
   for _, lnum in ipairs(changes.add) do table.insert(all_changes, lnum) end
   for _, lnum in ipairs(changes.change) do table.insert(all_changes, lnum) end
   for _, lnum in ipairs(changes.delete) do table.insert(all_changes, lnum) end
+  for _, lnum in ipairs(changes.topdelete) do table.insert(all_changes, lnum) end
+  for _, lnum in ipairs(changes.changedelete) do table.insert(all_changes, lnum) end
   table.sort(all_changes)
 
   local current_line = vim.api.nvim_win_get_cursor(0)[1]
@@ -151,6 +165,8 @@ function M.prev_hunk()
   for _, lnum in ipairs(changes.add) do table.insert(all_changes, lnum) end
   for _, lnum in ipairs(changes.change) do table.insert(all_changes, lnum) end
   for _, lnum in ipairs(changes.delete) do table.insert(all_changes, lnum) end
+  for _, lnum in ipairs(changes.topdelete) do table.insert(all_changes, lnum) end
+  for _, lnum in ipairs(changes.changedelete) do table.insert(all_changes, lnum) end
   table.sort(all_changes, function(a, b) return a > b end)
 
   local current_line = vim.api.nvim_win_get_cursor(0)[1]

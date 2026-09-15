@@ -125,8 +125,8 @@ function M.get_svn_base_async(file, callback)
     local base = (res.code == 0) and res.stdout or nil
     if generation == svn_base_cache_generation then
       svn_base_cache[file] = { base = base }
+      vim.schedule(function() callback(base) end)
     end
-    vim.schedule(function() callback(base) end)
   end)
 end
 

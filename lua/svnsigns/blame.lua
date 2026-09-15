@@ -23,6 +23,10 @@ function M.refresh_blame_cache(bufnr, file)
   svn.get_blame_lines_async(file, function(by_line)
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
     blame_line_cache[bufnr] = by_line
+    local winnr = vim.api.nvim_get_current_win()
+    if vim.api.nvim_win_is_valid(winnr) and vim.api.nvim_win_get_buf(winnr) == bufnr then
+      M.render_current_line_blame(winnr, bufnr)
+    end
   end)
 end
 
@@ -77,7 +81,8 @@ function M.cleanup_buffer(bufnr)
 end
 
 function M.blame_split()
-  local file = vim.api.nvim_buf_get_name(0)
+  local source_bufnr = vim.api.nvim_get_current_buf()
+  local file = vim.api.nvim_buf_get_name(source_bufnr)
   if file == "" then
     vim.notify("No file in current buffer", vim.log.levels.WARN)
     return
@@ -138,17 +143,21 @@ function M.blame_split()
   blame_bufnr = buf
 
   -- Setup highlighting for blame buffer
-  local source_bufnr = vim.fn.bufnr("#")
   for i, line in ipairs(lines) do
-    local rev = line:match("^%s*(%d+)")
-    if rev then
-      vim.api.nvim_buf_add_highlight(buf, -1, "SvnSignsBlameRevision", i - 1, 0, #rev + 1)
-      local author_start = line:find("%S", #rev + 2)
+    local rev_start, rev_end = line:find("%d+")
+    if rev_start and rev_end then
+      vim.api.nvim_buf_add_highlight(buf, -1, "SvnSignsBlameRevision", i - 1, rev_start - 1, rev_end)
+      local author_start = line:find("%S", rev_end + 1)
       if author_start then
         local author_end = line:find("%s", author_start)
-        if author_end then
-          vim.api.nvim_buf_add_highlight(buf, -1, "SvnSignsBlameAuthor", i - 1, author_start - 1, author_end - 1)
-        end
+        vim.api.nvim_buf_add_highlight(
+          buf,
+          -1,
+          "SvnSignsBlameAuthor",
+          i - 1,
+          author_start - 1,
+          (author_end and author_end - 1) or #line
+        )
       end
     end
   end

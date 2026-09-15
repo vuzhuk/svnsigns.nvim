@@ -33,6 +33,10 @@ function M.setup(opts)
   local current_buf = vim.api.nvim_get_current_buf()
   if vim.api.nvim_buf_is_valid(current_buf) then
     signs.update_signs(current_buf)
+    local current_file = vim.api.nvim_buf_get_name(current_buf)
+    if current_file ~= "" then
+      blame.refresh_blame_cache(current_buf, current_file)
+    end
   end
 
   -- All autocmds live in one augroup so re-running setup() (e.g. on a
@@ -146,21 +150,21 @@ function M.setup(opts)
   })
 
   -- Create commands
-  vim.api.nvim_create_user_command("SvnBlame", M.blame_split, {})
-  vim.api.nvim_create_user_command("SvnLog", M.show_line_log, {})
-  vim.api.nvim_create_user_command("SvnPreview", M.preview_hunk, {})
-  vim.api.nvim_create_user_command("SvnRevert", M.reset_buffer, {})
-  vim.api.nvim_create_user_command("SvnResetHunk", M.reset_hunk, {})
-  vim.api.nvim_create_user_command("SvnFiles", M.fzf_modified_files, {})
+  vim.api.nvim_create_user_command("SvnBlame", M.blame_split, { force = true })
+  vim.api.nvim_create_user_command("SvnLog", M.show_line_log, { force = true })
+  vim.api.nvim_create_user_command("SvnPreview", M.preview_hunk, { force = true })
+  vim.api.nvim_create_user_command("SvnRevert", M.reset_buffer, { force = true })
+  vim.api.nvim_create_user_command("SvnResetHunk", M.reset_hunk, { force = true })
+  vim.api.nvim_create_user_command("SvnFiles", M.fzf_modified_files, { force = true })
   vim.api.nvim_create_user_command("SvnRefresh", function()
     svn.invalidate_repo_cache()
     svn.invalidate_base_cache()
     local bufnr = vim.api.nvim_get_current_buf()
     signs.update_signs(bufnr)
     vim.notify("svnsigns: cache cleared, signs refreshed", vim.log.levels.INFO)
-  end, { desc = "Clear svnsigns' repo-detection cache and refresh current buffer" })
+  end, { desc = "Clear svnsigns' repo-detection cache and refresh current buffer", force = true })
   vim.api.nvim_create_user_command("SvnToggleCurrentLineBlame", M.toggle_current_line_blame,
-    { desc = "Toggle the current-line SVN blame virtual text" })
+    { desc = "Toggle the current-line SVN blame virtual text", force = true })
 end
 
 return M

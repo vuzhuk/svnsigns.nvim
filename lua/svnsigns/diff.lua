@@ -21,16 +21,26 @@ local M = {}
 -- nil if `line` isn't a hunk header. Missing counts default to 1, matching
 -- diff -u's own convention for a single-line range.
 function M.match_hunk_header(line)
-  local base_start, base_count, new_start, new_count =
-    line:match("^@@ %-(%d+),?(%d*) %+(%d+),?(%d*)")
-  if not base_start then
+  local base_range, new_range = line:match("^@@ %-(%d+,?%d*) %+(%d+,?%d*) @@")
+  if not base_range then
     return nil
   end
+
+  local function parse_range(range)
+    local start, count = range:match("^(%d+),(%d+)$")
+    if start then
+      return tonumber(start), tonumber(count)
+    end
+    return tonumber(range), 1
+  end
+
+  local base_start, base_count = parse_range(base_range)
+  local new_start, new_count = parse_range(new_range)
   return {
-    base_start = tonumber(base_start),
-    base_count = tonumber(base_count) or 1,
-    new_start = tonumber(new_start),
-    new_count = tonumber(new_count) or 1,
+    base_start = base_start,
+    base_count = base_count,
+    new_start = new_start,
+    new_count = new_count,
   }
 end
 
@@ -185,6 +195,8 @@ function M.split_into_hunks(diff_output)
     if hunk then
       if current then table.insert(hunks, current) end
       current = {
+        base_start = hunk.base_start,
+        base_count = hunk.base_count,
         new_start = hunk.new_start,
         new_count = hunk.new_count,
         lines = { line },
@@ -209,8 +221,9 @@ end
 -- lines, matching how gitsigns scopes preview_hunk to "the hunk near you".
 function M.find_hunk_at_line(hunks, cursor_line)
   for _, hunk in ipairs(hunks) do
-    local last = hunk.new_start + math.max(hunk.new_count, 1) - 1
-    if cursor_line >= hunk.new_start and cursor_line <= last then
+    local first = math.max(hunk.new_start, 1)
+    local last = first + math.max(hunk.new_count, 1) - 1
+    if cursor_line >= first and cursor_line <= last then
       return hunk
     end
   end
