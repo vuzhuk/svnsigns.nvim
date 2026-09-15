@@ -122,10 +122,13 @@ function M.get_svn_base_async(file, callback)
     -- valid "empty file" base, not "no base". Only a failed `svn cat`
     -- (unversioned/missing file) should map to nil.
     local base = (res.code == 0) and res.stdout or nil
-    if generation == svn_base_cache_generation then
-      svn_base_cache[file] = { base = base }
-      vim.schedule(function() callback(base) end)
+    if generation ~= svn_base_cache_generation then
+      M.get_svn_base_async(file, callback)
+      return
     end
+
+    svn_base_cache[file] = { base = base }
+    vim.schedule(function() callback(base) end)
   end)
 end
 
