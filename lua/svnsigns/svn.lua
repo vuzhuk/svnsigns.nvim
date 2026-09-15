@@ -35,6 +35,12 @@ end
 -- `svn info` on every debounced update. Keyed by file path.
 local svn_repo_cache = {}
 
+-- Bumped every time svn_repo_cache is invalidated. An in-flight `svn info`
+-- captures the generation it started with, so if a cache clear happens
+-- while it's still running, its result must not be written into the fresh
+-- cache once it lands (see M.invalidate_repo_cache).
+local svn_repo_cache_generation = 0
+
 -- Cache of the SVN base ("svn cat") content per file, so the hot update
 -- path (TextChanged/BufEnter) doesn't re-shell out to `svn cat` on every
 -- debounced keystroke. The base only changes on `svn update`/checkout, not
@@ -54,6 +60,7 @@ local svn_base_cache_generation = 0
 -- where "is this a repo?" may now have a different answer).
 function M.invalidate_repo_cache()
   svn_repo_cache = {}
+  svn_repo_cache_generation = svn_repo_cache_generation + 1
 end
 
 -- Clear the SVN base cache wholesale (e.g. on DirChanged/FocusGained/
@@ -91,8 +98,14 @@ function M.is_svn_repo_async(file, callback)
     return
   end
 
+  local generation = svn_repo_cache_generation
   safe_system({ "svn", "info", file }, { text = true }, function(res)
     local is_repo = res.code == 0 and res.stdout ~= nil and res.stdout ~= ""
+    if generation ~= svn_repo_cache_generation then
+      M.is_svn_repo_async(file, callback)
+      return
+    end
+
     svn_repo_cache[file] = is_repo
     vim.schedule(function() callback(is_repo) end)
   end)
