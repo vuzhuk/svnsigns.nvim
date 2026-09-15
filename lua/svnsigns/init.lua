@@ -1,4 +1,5 @@
 local config = require("svnsigns.config")
+local diff = require("svnsigns.diff")
 
 local M = {}
 
@@ -226,182 +227,6 @@ local function get_buffer_diff_async(bufnr, file, callback)
   end)
 end
 
--- Parse unified diff to extract changes, classified the same way gitsigns
--- classifies hunks:
---   add          - pure new lines with no corresponding removal
---   change       - a removed line paired 1:1 with an added line
---   delete       - removed lines with nothing replacing them, mid-file
---   topdelete    - removed lines with nothing replacing them, at the very
---                  start of the file (nothing precedes them to attach to)
---   changedelete - a change block where more lines were removed than added;
---                  the "leftover" removals attach to the last changed line
-local function parse_diff(diff_output)
-  local changes = { add = {}, change = {}, delete = {}, topdelete = {}, changedelete = {} }
-  if not diff_output or diff_output == "" then
-    return changes
-  end
-
-  -- First, collect all lines into a table so we can look ahead
-  local lines = {}
-  for line in diff_output:gmatch("[^\r\n]+") do
-    table.insert(lines, line)
-  end
-
-  local current_line = 0
-  -- True until we've emitted any context/add/change line — i.e. nothing in
-  -- the new file precedes the current position yet. Only while this holds
-  -- can a pure-deletion block be a "topdelete" (deletion at file start).
-  local at_file_start = true
-  local i = 1
-
-  -- `diff -u` only emits literal "---"/"+++" file-header lines once, before
-  -- the first "@@" hunk marker. Inside a hunk, a deleted/added line is
-  -- unambiguously identified by its single leading "-"/"+"; the rest of the
-  -- line is arbitrary content and may itself start with "--" or "++" (e.g.
-  -- deleting a Lua/SQL comment). Excluding "^%-%-%-"/"^%+%+%+" everywhere
-  -- would wrongly treat such a deleted/added comment line as a file header
-  -- and silently drop it, so that exclusion only applies before the first
-  -- hunk marker is seen.
-  local seen_hunk = false
-  local function is_del(l)
-    if seen_hunk then
-      return l:sub(1, 1) == "-"
-    end
-    return l:match("^%-") and not l:match("^%-%-%-")
-  end
-  local function is_add(l)
-    if seen_hunk then
-      return l:sub(1, 1) == "+"
-    end
-    return l:match("^%+") and not l:match("^%+%+%+")
-  end
-
-  while i <= #lines do
-    local line = lines[i]
-
-    if line:match("^@@ %-") then
-      current_line = tonumber(line:match("^@@ %-[%d,]+ %+(%d+)")) or 0
-      seen_hunk = true
-      i = i + 1
-    elseif is_del(line) then
-      local was_at_file_start = at_file_start
-
-      -- Collect the run of consecutive deletions...
-      local del_count = 0
-      local j = i
-      while j <= #lines and is_del(lines[j]) do
-        del_count = del_count + 1
-        j = j + 1
-      end
-      -- ...and the run of consecutive additions immediately following it.
-      local add_count = 0
-      local k = j
-      while k <= #lines and is_add(lines[k]) do
-        add_count = add_count + 1
-        k = k + 1
-      end
-
-      local paired = math.min(del_count, add_count)
-      for _ = 1, paired do
-        table.insert(changes.change, current_line)
-        current_line = current_line + 1
-      end
-      at_file_start = false
-
-      if del_count > add_count then
-        -- Deleted lines don't exist in the new file, so however many were
-        -- removed, only one sign is placed at the single attach point.
-        if paired > 0 then
-          -- Excess removals right after a change: changedelete, attached
-          -- to the last changed line.
-          local attach_line = math.max(current_line - 1, 1)
-          table.insert(changes.changedelete, attach_line)
-        elseif was_at_file_start and current_line <= 1 then
-          -- Pure deletion with nothing before it in the file: topdelete,
-          -- attached to line 1 since there's no earlier line to point to.
-          table.insert(changes.topdelete, math.max(current_line, 1))
-        else
-          table.insert(changes.delete, current_line)
-        end
-      elseif add_count > del_count then
-        local excess = add_count - del_count
-        for _ = 1, excess do
-          table.insert(changes.add, current_line)
-          current_line = current_line + 1
-        end
-      end
-
-      i = k
-    elseif is_add(line) then
-      table.insert(changes.add, current_line)
-      current_line = current_line + 1
-      at_file_start = false
-      i = i + 1
-    elseif line:match("^ ") then
-      current_line = current_line + 1
-      at_file_start = false
-      i = i + 1
-    else
-      i = i + 1
-    end
-  end
-
-  return changes
-end
-
--- Split a unified diff into hunks, each covering a contiguous range of the
--- *new* (buffer) file. Used by preview_hunk to show only the hunk under the
--- cursor instead of the whole-file diff (gitsigns-style).
--- Returns: { { new_start = N, new_count = M, lines = {...} }, ... }
-local function split_into_hunks(diff_output)
-  local hunks = {}
-  if not diff_output or diff_output == "" then
-    return hunks
-  end
-
-  local lines = {}
-  for line in diff_output:gmatch("[^\r\n]+") do
-    table.insert(lines, line)
-  end
-
-  local current = nil
-  for _, line in ipairs(lines) do
-    local new_start, new_count = line:match("^@@ %-[%d,]+ %+(%d+),?(%d*) @@")
-    if new_start then
-      if current then table.insert(hunks, current) end
-      current = {
-        new_start = tonumber(new_start),
-        new_count = tonumber(new_count) or 1,
-        lines = { line },
-      }
-    elseif current then
-      -- The literal "--- a/file"/"+++ b/file" file-header lines only ever
-      -- appear before the first "@@" marker, i.e. while current is still
-      -- nil, so there's no need (and it's actively wrong) to filter lines
-      -- matching that pattern here: a real deleted/added comment line
-      -- (e.g. "--- some comment") inside a hunk would otherwise be dropped
-      -- from the preview. See parse_diff's is_del/is_add for the same fix.
-      table.insert(current.lines, line)
-    end
-  end
-  if current then table.insert(hunks, current) end
-
-  return hunks
-end
-
--- Find the hunk (if any) whose new-file line range contains `cursor_line`
--- (1-indexed). A hunk's range includes its surrounding unified-diff context
--- lines, matching how gitsigns scopes preview_hunk to "the hunk near you".
-local function find_hunk_at_line(hunks, cursor_line)
-  for _, hunk in ipairs(hunks) do
-    local last = hunk.new_start + math.max(hunk.new_count, 1) - 1
-    if cursor_line >= hunk.new_start and cursor_line <= last then
-      return hunk
-    end
-  end
-  return nil
-end
-
 -- Get SVN blame metadata only (no code)
 local function get_blame_metadata(file)
   -- Get blame with verbose mode, extract rev (col 1), author (col 2), and date (col 3)
@@ -562,11 +387,11 @@ local function update_signs(bufnr)
     if not is_repo then return end
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
-    get_buffer_diff_async(bufnr, file, function(diff)
-      if not diff then return end
+    get_buffer_diff_async(bufnr, file, function(diff_output)
+      if not diff_output then return end
       if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
-      local changes = parse_diff(diff)
+      local changes = diff.parse_diff(diff_output)
       place_signs(bufnr, changes)
       buffers[bufnr] = changes
     end)
@@ -634,16 +459,16 @@ end
 function M.preview_hunk()
   local bufnr = vim.api.nvim_get_current_buf()
   local file = vim.api.nvim_buf_get_name(bufnr)
-  local diff = get_buffer_diff(bufnr, file)
+  local diff_output = get_buffer_diff(bufnr, file)
   
-  if not diff or diff == "" then
+  if not diff_output or diff_output == "" then
     vim.notify("No changes to preview", vim.log.levels.INFO)
     return
   end
 
-  local hunks = split_into_hunks(diff)
+  local hunks = diff.split_into_hunks(diff_output)
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
-  local hunk = find_hunk_at_line(hunks, cursor_line)
+  local hunk = diff.find_hunk_at_line(hunks, cursor_line)
 
   if not hunk then
     vim.notify("No hunk at cursor", vim.log.levels.INFO)
