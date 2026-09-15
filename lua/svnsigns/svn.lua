@@ -92,7 +92,7 @@ function M.is_svn_repo_async(file, callback)
     return
   end
 
-  safe_system({ "svn", "info", file }, { text = true }, function(res)
+  safe_system({ "svn", "info", dir }, { text = true }, function(res)
     local is_repo = res.code == 0 and res.stdout ~= nil and res.stdout ~= ""
     svn_repo_cache[dir] = is_repo
     vim.schedule(function() callback(is_repo) end)
