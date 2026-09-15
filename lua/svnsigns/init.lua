@@ -1,24 +1,10 @@
+local config = require("svnsigns.config")
+
 local M = {}
 
--- Configuration
-M.config = {
-  signs = {
-    add = { text = "█" },
-    change = { text = "█" },
-    delete = { text = "█" },
-    topdelete = { text = "█" },
-    changedelete = { text = "█" },
-  },
-  sign_priority = 6,
-  update_debounce = 100,
-  -- Show a virtual-text blame annotation on the line the cursor is on
-  -- (gitsigns-style). Off by default, matching gitsigns' own default.
-  current_line_blame = false,
-  -- blame = { rev, author, date }
-  current_line_blame_formatter = function(blame)
-    return string.format("  %s, %s, %s", blame.author, blame.date, blame.rev)
-  end,
-}
+-- Kept for backwards compatibility: previously the single source of
+-- config, now a live view onto svnsigns.config's options.
+M.config = config.options
 
 -- State
 local ns_id = vim.api.nvim_create_namespace("svnsigns")
@@ -64,21 +50,6 @@ local function safe_system(cmd, opts, on_exit)
   end
 end
 
--- Define sign highlights
-local function setup_highlights()
-  -- Make sure signcolumn has no background
-  vim.api.nvim_set_hl(0, "SignColumn", { ctermbg = "NONE", bg = "NONE" })
-  
-  -- Set sign colors with bold for visibility
-  vim.api.nvim_set_hl(0, "SvnSignsAdd", { ctermfg = 2, fg = "Green", bold = true })
-  vim.api.nvim_set_hl(0, "SvnSignsChange", { ctermfg = 3, fg = "Yellow", bold = true })
-  vim.api.nvim_set_hl(0, "SvnSignsDelete", { ctermfg = 1, fg = "Red", bold = true })
-  vim.api.nvim_set_hl(0, "SvnSignsTopDelete", { link = "SvnSignsDelete", default = true })
-  vim.api.nvim_set_hl(0, "SvnSignsChangeDelete", { link = "SvnSignsChange", default = true })
-  vim.api.nvim_set_hl(0, "SvnSignsCurrentLineBlame", { link = "Comment", default = true })
-  vim.api.nvim_set_hl(0, "SvnSignsBlameRevision", { link = "Number", default = true })
-  vim.api.nvim_set_hl(0, "SvnSignsBlameAuthor", { link = "String", default = true })
-end
 
 -- Check if file is under SVN control (synchronous; used by on-demand user
 -- commands like :SvnBlame/:SvnLog/:SvnResetHunk where a brief blocking call
@@ -477,7 +448,7 @@ end
 -- Refresh blame_line_cache[bufnr] from disk (async). Used to back the
 -- current-line blame virtual text; a no-op if the feature is disabled.
 local function refresh_blame_cache(bufnr, file)
-  if not M.config.current_line_blame then return end
+  if not config.options.current_line_blame then return end
 
   get_blame_lines_async(file, function(by_line)
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
@@ -491,7 +462,7 @@ end
 local function render_current_line_blame(winnr, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, blame_ns_id, 0, -1)
 
-  if not M.config.current_line_blame then return end
+  if not config.options.current_line_blame then return end
   local by_line = blame_line_cache[bufnr]
   if not by_line then return end
 
@@ -499,7 +470,7 @@ local function render_current_line_blame(winnr, bufnr)
   local blame = by_line[lnum]
   if not blame then return end
 
-  local ok, text = pcall(M.config.current_line_blame_formatter, blame)
+  local ok, text = pcall(config.options.current_line_blame_formatter, blame)
   if not ok or not text then return end
 
   vim.api.nvim_buf_set_extmark(bufnr, blame_ns_id, lnum - 1, 0, {
@@ -518,9 +489,9 @@ local function place_signs(bufnr, changes)
   for _, lnum in ipairs(changes.add) do
     if lnum > 0 then
       vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = M.config.signs.add.text,
+        sign_text = config.options.signs.add.text,
         sign_hl_group = "SvnSignsAdd",
-        priority = M.config.sign_priority,
+        priority = config.options.sign_priority,
       })
     end
   end
@@ -529,9 +500,9 @@ local function place_signs(bufnr, changes)
   for _, lnum in ipairs(changes.change) do
     if lnum > 0 then
       vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = M.config.signs.change.text,
+        sign_text = config.options.signs.change.text,
         sign_hl_group = "SvnSignsChange",
-        priority = M.config.sign_priority,
+        priority = config.options.sign_priority,
       })
     end
   end
@@ -540,9 +511,9 @@ local function place_signs(bufnr, changes)
   for _, lnum in ipairs(changes.delete) do
     if lnum > 0 then
       vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = M.config.signs.delete.text,
+        sign_text = config.options.signs.delete.text,
         sign_hl_group = "SvnSignsDelete",
-        priority = M.config.sign_priority,
+        priority = config.options.sign_priority,
       })
     end
   end
@@ -551,9 +522,9 @@ local function place_signs(bufnr, changes)
   for _, lnum in ipairs(changes.topdelete) do
     if lnum > 0 then
       vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = M.config.signs.topdelete.text,
+        sign_text = config.options.signs.topdelete.text,
         sign_hl_group = "SvnSignsTopDelete",
-        priority = M.config.sign_priority,
+        priority = config.options.sign_priority,
       })
     end
   end
@@ -562,9 +533,9 @@ local function place_signs(bufnr, changes)
   for _, lnum in ipairs(changes.changedelete) do
     if lnum > 0 then
       vim.api.nvim_buf_set_extmark(bufnr, ns_id, lnum - 1, 0, {
-        sign_text = M.config.signs.changedelete.text,
+        sign_text = config.options.signs.changedelete.text,
         sign_hl_group = "SvnSignsChangeDelete",
-        priority = M.config.sign_priority,
+        priority = config.options.sign_priority,
       })
     end
   end
@@ -613,7 +584,7 @@ local function debounced_update(bufnr)
       update_signs(bufnr)
     end
     timers[bufnr] = nil
-  end, M.config.update_debounce)
+  end, config.options.update_debounce)
 end
 
 -- Navigate to next hunk
@@ -1113,10 +1084,10 @@ end
 -- immediately (re)populate the cache for the current buffer so the
 -- annotation appears without waiting for the next BufReadPost/Write.
 function M.toggle_current_line_blame()
-  M.config.current_line_blame = not M.config.current_line_blame
+  config.options.current_line_blame = not config.options.current_line_blame
 
   local bufnr = vim.api.nvim_get_current_buf()
-  if M.config.current_line_blame then
+  if config.options.current_line_blame then
     local file = vim.api.nvim_buf_get_name(bufnr)
     if file ~= "" then
       refresh_blame_cache(bufnr, file)
@@ -1125,16 +1096,17 @@ function M.toggle_current_line_blame()
   render_current_line_blame(vim.api.nvim_get_current_win(), bufnr)
 
   vim.notify(
-    "svnsigns: current-line blame " .. (M.config.current_line_blame and "enabled" or "disabled"),
+    "svnsigns: current-line blame " .. (config.options.current_line_blame and "enabled" or "disabled"),
     vim.log.levels.INFO
   )
 end
 
 -- Setup function
 function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", M.config, opts or {})
-  
-  setup_highlights()
+  config.setup(opts)
+  M.config = config.options
+
+  config.setup_highlights()
 
   -- Update signs for current buffer if it exists
   local current_buf = vim.api.nvim_get_current_buf()
