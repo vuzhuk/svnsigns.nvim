@@ -89,9 +89,13 @@ local function select_index(idx)
   ensure_buffers(entry)
   vim.api.nvim_win_set_buf(state.base_win, entry.base_buf)
   vim.api.nvim_win_set_buf(state.cur_win, entry.cur_buf)
-  -- Buffers were swapped without "entering" either window, so diff mode
-  -- won't have recomputed on its own; force it.
-  vim.cmd("diffupdate")
+  -- `:diffthis` must be (re)applied after the buffer swap, not before:
+  -- Neovim resets a window's local 'diff' option as soon as its displayed
+  -- buffer changes, so re-enabling diff mode has to happen down here on
+  -- every selection, not once at window-creation time.
+  for _, win in ipairs({ state.base_win, state.cur_win }) do
+    vim.api.nvim_win_call(win, function() vim.cmd("diffthis") end)
+  end
 end
 
 local function close()
@@ -149,10 +153,6 @@ function M.open()
   local cur_win = vim.api.nvim_open_win(cur_placeholder, true, { win = base_win, split = "right" })
 
   vim.api.nvim_win_set_width(panel_win, 40)
-
-  for _, win in ipairs({ base_win, cur_win }) do
-    vim.api.nvim_win_call(win, function() vim.cmd("diffthis") end)
-  end
 
   state = {
     tabpage = tabpage,
