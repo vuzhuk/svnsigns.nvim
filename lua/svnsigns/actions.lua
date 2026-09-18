@@ -158,4 +158,70 @@ function M.fzf_modified_files()
   })
 end
 
+-- FzfLua picker for SVN branches/tags (trunk + branches/* + tags/*),
+-- mirroring fzf-lua's own `git_branches`: preview shows recent log for the
+-- hovered branch, <CR> switches the working copy to the selected one.
+function M.fzf_branches()
+  local has_fzf, fzf = pcall(require, "fzf-lua")
+  if not has_fzf then
+    vim.notify("fzf-lua is not installed", vim.log.levels.ERROR)
+    return
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local file = vim.api.nvim_buf_get_name(bufnr)
+  local branches = svn.list_branches(file)
+
+  if #branches == 0 then
+    vim.notify("No SVN branches found (expects a trunk/branches/tags layout)", vim.log.levels.INFO)
+    return
+  end
+
+  -- Map each displayed entry back to its branch record (name is unique per
+  -- list_branches's construction, so it's a safe lookup key).
+  local by_name = {}
+  local entries = {}
+  for _, b in ipairs(branches) do
+    by_name[b.name] = b
+    table.insert(entries, (b.current and "* " or "  ") .. b.name)
+  end
+
+  local function name_from_entry(entry)
+    return (entry:gsub("^[%*%s]+", ""))
+  end
+
+  fzf.fzf_exec(entries, {
+    prompt = "SVN Branches> ",
+    preview = function(args)
+      local branch = by_name[name_from_entry(args[1])]
+      if not branch then return "" end
+      return svn.get_branch_log(branch.url, 20) or ("No log available for " .. branch.name)
+    end,
+    actions = {
+      ["default"] = function(selected)
+        local branch = by_name[name_from_entry(selected[1])]
+        if not branch then return end
+        if branch.current then
+          vim.notify("Already on " .. branch.name, vim.log.levels.INFO)
+          return
+        end
+        vim.ui.input(
+          { prompt = "Switch working copy to " .. branch.name .. "? (y/N): " },
+          function(input)
+            if input ~= "y" and input ~= "Y" then return end
+            local dir = vim.fn.fnamemodify(file, ":h")
+            local ok, output = svn.switch_to_branch(dir, branch.url)
+            if not ok then
+              vim.notify("Failed to switch: " .. output, vim.log.levels.ERROR)
+              return
+            end
+            vim.cmd("checktime")
+            vim.notify("Switched to " .. branch.name, vim.log.levels.INFO)
+          end
+        )
+      end,
+    },
+  })
+end
+
 return M
