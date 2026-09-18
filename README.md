@@ -52,7 +52,7 @@ Current-line blame as virtual text, updating as the cursor moves:
 
 - Neovim 0.10+ (uses `vim.system` for async shell calls)
 - `svn` and `diff` available on `$PATH`
-- [fzf-lua](https://github.com/ibhagwan/fzf-lua) (optional, only for `:SvnFiles`)
+- [fzf-lua](https://github.com/ibhagwan/fzf-lua) (optional, only for `:SvnFiles`/`:SvnBranches`)
 
 ## Installation
 
