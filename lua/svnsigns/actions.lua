@@ -190,12 +190,21 @@ function M.fzf_branches()
     return (entry:gsub("^[%*%s]+", ""))
   end
 
+  -- Prefetch each branch's log asynchronously so the preview callback below
+  -- never shells out synchronously (svn log against a remote URL would
+  -- otherwise block all of Neovim for the duration of the network call).
+  local log_cache = {}
+  for _, b in ipairs(branches) do
+    svn.get_branch_log_async(b.url, 20, function(log)
+      log_cache[b.name] = log or ("No log available for " .. b.name)
+    end)
+  end
+
   fzf.fzf_exec(entries, {
     prompt = "SVN Branches> ",
     preview = function(args)
-      local branch = by_name[name_from_entry(args[1])]
-      if not branch then return "" end
-      return svn.get_branch_log(branch.url, 20) or ("No log available for " .. branch.name)
+      local name = name_from_entry(args[1])
+      return log_cache[name] or "Loading log..."
     end,
     actions = {
       ["default"] = function(selected)
@@ -209,7 +218,11 @@ function M.fzf_branches()
           { prompt = "Switch working copy to " .. branch.name .. "? (y/N): " },
           function(input)
             if input ~= "y" and input ~= "Y" then return end
-            local dir = svn.get_wc_root(file) or vim.fn.fnamemodify(file, ":h")
+            local dir = svn.get_wc_root(file)
+            if not dir then
+              vim.notify("Unable to determine SVN working-copy root", vim.log.levels.ERROR)
+              return
+            end
             local ok, output = svn.switch_to_branch(dir, branch.url)
             if not ok then
               vim.notify("Failed to switch: " .. output, vim.log.levels.ERROR)
@@ -219,6 +232,7 @@ function M.fzf_branches()
             svn.invalidate_repo_cache()
             svn.invalidate_base_cache()
             signs.update_signs(bufnr)
+            require("svnsigns.blame").refresh_blame_cache(bufnr, file)
             vim.notify("Switched to " .. branch.name, vim.log.levels.INFO)
           end
         )
