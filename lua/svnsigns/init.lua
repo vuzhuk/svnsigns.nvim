@@ -3,6 +3,7 @@ local svn = require("svnsigns.svn")
 local signs = require("svnsigns.signs")
 local blame = require("svnsigns.blame")
 local actions = require("svnsigns.actions")
+local changeset = require("svnsigns.changeset")
 
 local M = {}
 
@@ -22,6 +23,7 @@ M.reset_buffer = actions.reset_buffer
 M.fzf_modified_files = actions.fzf_modified_files
 M.fzf_branches = actions.fzf_branches
 M.get_modified_files = svn.get_modified_files
+M.open_changeset = changeset.open
 
 -- Setup function
 function M.setup(opts)
@@ -159,6 +161,8 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("SvnFiles", M.fzf_modified_files, { force = true })
   vim.api.nvim_create_user_command("SvnBranches", M.fzf_branches,
     { desc = "Browse SVN trunk/branches/tags and switch the working copy via fzf-lua", force = true })
+  vim.api.nvim_create_user_command("SvnChanges", M.open_changeset,
+    { desc = "Open a diffview-style multi-file changeset view of all SVN changes", force = true })
   vim.api.nvim_create_user_command("SvnRefresh", function()
     svn.invalidate_repo_cache()
     svn.invalidate_base_cache()
