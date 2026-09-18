@@ -313,6 +313,32 @@ function M.get_line_blame(file, lnum)
   return rev
 end
 
+-- List every changed path in the working copy (any non-blank status
+-- column: modified, added, deleted, missing, untracked, conflicted, ...),
+-- for the multi-file changeset diff view. Unlike get_modified_files (used
+-- by :SvnFiles, which only cares about editable content changes), this
+-- keeps the status letter so the changeset view can label each entry and
+-- decide how to render its diff (e.g. a deleted file has no working copy
+-- content to show).
+-- Returns: { { status = "M", path = "relative/path" }, ... }, sorted by path.
+function M.get_changed_files()
+  local handle = io.popen("svn status 2>/dev/null")
+  if not handle then return {} end
+
+  local files = {}
+  for line in handle:lines() do
+    local status = line:sub(1, 1)
+    local path = line:sub(9)
+    if status ~= " " and status ~= "" and path ~= "" then
+      table.insert(files, { status = status, path = path })
+    end
+  end
+  handle:close()
+
+  table.sort(files, function(a, b) return a.path < b.path end)
+  return files
+end
+
 -- Get list of modified/added files in SVN
 function M.get_modified_files()
   local handle = io.popen("svn status 2>/dev/null")
