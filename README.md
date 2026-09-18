@@ -17,6 +17,9 @@ integration for SVN working copies.
 - `:SvnFiles` — browse modified SVN files via `fzf-lua`.
 - `:SvnBranches` — browse trunk/branches/tags via `fzf-lua` (log preview,
   switch the working copy on selection).
+- `:SvnChanges` — diffview.nvim-style multi-file changeset view: a file
+  panel listing every changed path, with a synced side-by-side diff
+  (base vs. working copy) that updates as you move through the panel.
 - `:SvnRefresh` — clear svnsigns' internal caches (repo-detection, SVN base
   content) and re-scan the current buffer (useful after `svn update` or
   `svn checkout`-ing a new working copy).
@@ -52,6 +55,12 @@ Current-line blame as virtual text, updating as the cursor moves:
 log preview for the hovered entry:
 
 ![SvnBranches picker](assets/screenshots/svn-branches.png)
+
+`:SvnChanges` — a diffview.nvim-style tab: the left panel lists every
+changed path (`svn status`), and moving the cursor over an entry updates
+the base/working-copy diff shown to its right. `<CR>` jumps into the
+working-copy pane to edit it directly, `R` re-runs `svn status` in place,
+and `q`/`<Esc>` closes the view.
 
 ## Requirements
 
@@ -174,6 +183,7 @@ vim.keymap.set("n", "<leader>sR", function() require("svnsigns").reset_buffer() 
 vim.keymap.set("n", "<leader>sr", function() require("svnsigns").reset_hunk() end)
 vim.keymap.set("n", "<leader>fs", function() require("svnsigns").fzf_modified_files() end)
 vim.keymap.set("n", "<leader>fb", "<cmd>SvnBranches<cr>")
+vim.keymap.set("n", "<leader>sc", "<cmd>SvnChanges<cr>")
 vim.keymap.set("n", "<leader>tb", "<cmd>SvnToggleCurrentLineBlame<cr>")
 ```
 
