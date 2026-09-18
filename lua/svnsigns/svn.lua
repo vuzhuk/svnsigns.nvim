@@ -441,6 +441,17 @@ function M.get_branch_log(url, limit)
   return result
 end
 
+-- Async version of get_branch_log. `svn log` against a remote (http/https)
+-- URL does a network round-trip, so the fzf-lua branches picker prefetches
+-- these instead of shelling out synchronously from its preview callback
+-- (which would otherwise block Neovim for the duration).
+function M.get_branch_log_async(url, limit, callback)
+  safe_system({ "svn", "log", "-l", tostring(limit or 20), url }, { text = true }, function(res)
+    local log = (res.code == 0) and res.stdout or nil
+    vim.schedule(function() callback(log) end)
+  end)
+end
+
 -- Switch `dir`'s working copy to `url`. Returns (ok, output).
 function M.switch_to_branch(dir, url)
   local output = vim.fn.system(
