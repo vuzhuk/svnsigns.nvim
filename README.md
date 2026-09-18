@@ -15,6 +15,8 @@ integration for SVN working copies.
 - `:SvnPreview` — floating diff preview of the hunk under the cursor.
 - `:SvnResetHunk` / `:SvnRevert` — revert a single hunk or the whole buffer.
 - `:SvnFiles` — browse modified SVN files via `fzf-lua`.
+- `:SvnBranches` — browse trunk/branches/tags via `fzf-lua` (log preview,
+  switch the working copy on selection).
 - `:SvnRefresh` — clear svnsigns' internal caches (repo-detection, SVN base
   content) and re-scan the current buffer (useful after `svn update` or
   `svn checkout`-ing a new working copy).
@@ -50,7 +52,7 @@ Current-line blame as virtual text, updating as the cursor moves:
 
 - Neovim 0.10+ (uses `vim.system` for async shell calls)
 - `svn` and `diff` available on `$PATH`
-- [fzf-lua](https://github.com/ibhagwan/fzf-lua) (optional, only for `:SvnFiles`)
+- [fzf-lua](https://github.com/ibhagwan/fzf-lua) (optional, only for `:SvnFiles`/`:SvnBranches`)
 
 ## Installation
 
@@ -166,6 +168,7 @@ vim.keymap.set("n", "<leader>sl", function() require("svnsigns").show_line_log()
 vim.keymap.set("n", "<leader>sR", function() require("svnsigns").reset_buffer() end)
 vim.keymap.set("n", "<leader>sr", function() require("svnsigns").reset_hunk() end)
 vim.keymap.set("n", "<leader>fs", function() require("svnsigns").fzf_modified_files() end)
+vim.keymap.set("n", "<leader>fb", "<cmd>SvnBranches<cr>")
 vim.keymap.set("n", "<leader>tb", "<cmd>SvnToggleCurrentLineBlame<cr>")
 ```
 
