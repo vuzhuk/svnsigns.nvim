@@ -358,6 +358,14 @@ function M.get_current_url(file)
   return svn_info_item(file, "url")
 end
 
+-- Absolute path of the working copy root containing `file`. `svn switch`
+-- needs this (not just the buffer's own directory), since switching a
+-- subdirectory instead of the whole checkout silently creates a
+-- mixed-URL working copy.
+function M.get_wc_root(file)
+  return svn_info_item(file, "wc-root")
+end
+
 -- Whether `url` exists in the repository (used to skip absent trunk/tags
 -- dirs instead of erroring, since not every repo follows the convention).
 local function svn_path_exists(url)
