@@ -390,6 +390,35 @@ local function svn_ls_dirs(url)
   return entries
 end
 
+-- Walk up from `file`'s directory URL to the repository root, looking for
+-- the nearest ancestor that has both a "trunk" child and a "branches" or
+-- "tags" child. `repos-root-url` alone is often too shallow: many repos
+-- host several projects under one physical SVN repository, so trunk lives
+-- at e.g. "<repos-root>/projects/trunk", not "<repos-root>/trunk".
+local function find_project_root(file)
+  local repos_root = M.get_repo_root_url(file)
+  local current_url = M.get_current_url(file)
+  if not repos_root or not current_url then return repos_root end
+
+  local dir_url = current_url:match("^(.*)/[^/]+$") or current_url
+  local candidates = {}
+  local url = dir_url
+  while url and #url >= #repos_root do
+    table.insert(candidates, url)
+    if url == repos_root then break end
+    url = url:match("^(.*)/[^/]+$")
+  end
+
+  for _, candidate in ipairs(candidates) do
+    if svn_path_exists(candidate .. "/trunk")
+      and (svn_path_exists(candidate .. "/branches") or svn_path_exists(candidate .. "/tags")) then
+      return candidate
+    end
+  end
+
+  return repos_root
+end
+
 -- List "branches" for `file`'s repository, following the conventional
 -- trunk/branches/tags layout. Each entry is
 --   { name = "trunk" | "branches/foo" | "tags/v1", url = <full url>,
@@ -398,7 +427,7 @@ end
 -- list; callers should handle that gracefully rather than erroring, since
 -- SVN has no first-class notion of branches the way git does.
 function M.list_branches(file)
-  local root = M.get_repo_root_url(file)
+  local root = find_project_root(file)
   if not root then return {} end
 
   -- `file`'s own URL includes its filename, e.g. ".../trunk/f.txt", so a
@@ -439,17 +468,6 @@ function M.get_branch_log(url, limit)
   local result = handle:read("*a")
   handle:close()
   return result
-end
-
--- Async version of get_branch_log. `svn log` against a remote (http/https)
--- URL does a network round-trip, so the fzf-lua branches picker prefetches
--- these instead of shelling out synchronously from its preview callback
--- (which would otherwise block Neovim for the duration).
-function M.get_branch_log_async(url, limit, callback)
-  safe_system({ "svn", "log", "-l", tostring(limit or 20), url }, { text = true }, function(res)
-    local log = (res.code == 0) and res.stdout or nil
-    vim.schedule(function() callback(log) end)
-  end)
 end
 
 -- Switch `dir`'s working copy to `url`. Returns (ok, output).

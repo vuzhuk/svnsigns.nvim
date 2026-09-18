@@ -18,6 +18,12 @@ M.defaults = {
   current_line_blame_formatter = function(blame)
     return string.format("  %s, %s, %s", blame.author, blame.date, blame.rev)
   end,
+  branches = {
+    -- Override branch/tag discovery for repos that don't use a plain
+    -- trunk/branches/tags layout (e.g. company-specific SVN conventions).
+    -- function(file) -> { { name, url, current }, ... }
+    list = nil,
+  },
 }
 
 -- The live, effective config. Other modules require() this table directly

@@ -3,6 +3,7 @@
 local svn = require("svnsigns.svn")
 local diff = require("svnsigns.diff")
 local signs = require("svnsigns.signs")
+local config = require("svnsigns.config")
 
 local M = {}
 
@@ -170,10 +171,11 @@ function M.fzf_branches()
 
   local bufnr = vim.api.nvim_get_current_buf()
   local file = vim.api.nvim_buf_get_name(bufnr)
-  local branches = svn.list_branches(file)
+  local list_branches = config.options.branches and config.options.branches.list or svn.list_branches
+  local branches = list_branches(file)
 
   if #branches == 0 then
-    vim.notify("No SVN branches found (expects a trunk/branches/tags layout)", vim.log.levels.INFO)
+    vim.notify("No SVN branches found (expects a trunk/branches/tags layout, or configure opts.branches.list)", vim.log.levels.INFO)
     return
   end
 
@@ -190,21 +192,25 @@ function M.fzf_branches()
     return (entry:gsub("^[%*%s]+", ""))
   end
 
-  -- Prefetch each branch's log asynchronously so the preview callback below
-  -- never shells out synchronously (svn log against a remote URL would
-  -- otherwise block all of Neovim for the duration of the network call).
+  -- Fetch each branch's log lazily, on first hover, rather than
+  -- prefetching all of them: repos with many stable/release branches (some
+  -- have 1000+) would otherwise fire that many concurrent `svn log` calls
+  -- against the server the instant the picker opens. A synchronous
+  -- fetch-per-hover does block Neovim briefly for that one call, but only
+  -- for entries the user actually navigates to, and results are cached so
+  -- re-hovering the same entry is instant.
   local log_cache = {}
-  for _, b in ipairs(branches) do
-    svn.get_branch_log_async(b.url, 20, function(log)
-      log_cache[b.name] = log or ("No log available for " .. b.name)
-    end)
-  end
 
   fzf.fzf_exec(entries, {
     prompt = "SVN Branches> ",
     preview = function(args)
       local name = name_from_entry(args[1])
-      return log_cache[name] or "Loading log..."
+      if log_cache[name] then return log_cache[name] end
+      local branch = by_name[name]
+      if not branch then return "" end
+      local log = svn.get_branch_log(branch.url, 20) or ("No log available for " .. name)
+      log_cache[name] = log
+      return log
     end,
     actions = {
       ["default"] = function(selected)
