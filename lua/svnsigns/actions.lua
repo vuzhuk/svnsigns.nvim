@@ -209,13 +209,16 @@ function M.fzf_branches()
           { prompt = "Switch working copy to " .. branch.name .. "? (y/N): " },
           function(input)
             if input ~= "y" and input ~= "Y" then return end
-            local dir = vim.fn.fnamemodify(file, ":h")
+            local dir = svn.get_wc_root(file) or vim.fn.fnamemodify(file, ":h")
             local ok, output = svn.switch_to_branch(dir, branch.url)
             if not ok then
               vim.notify("Failed to switch: " .. output, vim.log.levels.ERROR)
               return
             end
             vim.cmd("checktime")
+            svn.invalidate_repo_cache()
+            svn.invalidate_base_cache()
+            signs.update_signs(bufnr)
             vim.notify("Switched to " .. branch.name, vim.log.levels.INFO)
           end
         )
