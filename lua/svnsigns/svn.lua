@@ -333,4 +333,112 @@ function M.get_modified_files()
   return files
 end
 
+-- Run `svn info --show-item <item>` against `target` (a file, directory, or
+-- URL) and return the trimmed single-line result, or nil on failure.
+local function svn_info_item(target, item)
+  local handle = io.popen(
+    string.format("svn info --show-item %s %s 2>/dev/null", item, vim.fn.shellescape(target))
+  )
+  if not handle then return nil end
+  local result = handle:read("*a")
+  handle:close()
+  if not result or result == "" then return nil end
+  return (result:gsub("%s+$", ""))
+end
+
+-- URL of the repository root that `file`'s working copy belongs to (e.g.
+-- "file:///svn/repo" or "https://svn.example.com/repo").
+function M.get_repo_root_url(file)
+  return svn_info_item(file, "repos-root-url")
+end
+
+-- URL that `file`'s working copy is currently switched to (e.g.
+-- ".../trunk" or ".../branches/feature-x").
+function M.get_current_url(file)
+  return svn_info_item(file, "url")
+end
+
+-- Whether `url` exists in the repository (used to skip absent trunk/tags
+-- dirs instead of erroring, since not every repo follows the convention).
+local function svn_path_exists(url)
+  local handle = io.popen("svn info " .. vim.fn.shellescape(url) .. " 2>/dev/null")
+  if not handle then return false end
+  local result = handle:read("*a")
+  handle:close()
+  return result and result ~= ""
+end
+
+-- List immediate subdirectories of `url` (one level), stripping the
+-- trailing '/' svn ls appends to directory entries.
+local function svn_ls_dirs(url)
+  local handle = io.popen("svn ls " .. vim.fn.shellescape(url) .. " 2>/dev/null")
+  if not handle then return {} end
+  local entries = {}
+  for line in handle:lines() do
+    local name = line:match("^(.-)/$")
+    if name then table.insert(entries, name) end
+  end
+  handle:close()
+  return entries
+end
+
+-- List "branches" for `file`'s repository, following the conventional
+-- trunk/branches/tags layout. Each entry is
+--   { name = "trunk" | "branches/foo" | "tags/v1", url = <full url>,
+--     current = <bool> }
+-- Repos that don't use this layout simply yield an empty (or partial)
+-- list; callers should handle that gracefully rather than erroring, since
+-- SVN has no first-class notion of branches the way git does.
+function M.list_branches(file)
+  local root = M.get_repo_root_url(file)
+  if not root then return {} end
+
+  -- `file`'s own URL includes its filename, e.g. ".../trunk/f.txt", so a
+  -- branch is "current" when that URL sits under the branch (equal or
+  -- '/'-prefixed), not when it equals the branch URL exactly.
+  local current_url = M.get_current_url(file)
+  local function is_current(branch_url)
+    return current_url == branch_url or (current_url and current_url:sub(1, #branch_url + 1) == branch_url .. "/")
+  end
+  local branches = {}
+
+  local trunk_url = root .. "/trunk"
+  if svn_path_exists(trunk_url) then
+    table.insert(branches, { name = "trunk", url = trunk_url, current = is_current(trunk_url) })
+  end
+
+  local branches_url = root .. "/branches"
+  for _, name in ipairs(svn_ls_dirs(branches_url)) do
+    local url = branches_url .. "/" .. name
+    table.insert(branches, { name = "branches/" .. name, url = url, current = is_current(url) })
+  end
+
+  local tags_url = root .. "/tags"
+  for _, name in ipairs(svn_ls_dirs(tags_url)) do
+    local url = tags_url .. "/" .. name
+    table.insert(branches, { name = "tags/" .. name, url = url, current = is_current(url) })
+  end
+
+  return branches
+end
+
+-- Recent log for a branch/tag URL, used as fzf-lua preview content.
+function M.get_branch_log(url, limit)
+  local handle = io.popen(
+    string.format("svn log -l %d %s 2>/dev/null", limit or 20, vim.fn.shellescape(url))
+  )
+  if not handle then return nil end
+  local result = handle:read("*a")
+  handle:close()
+  return result
+end
+
+-- Switch `dir`'s working copy to `url`. Returns (ok, output).
+function M.switch_to_branch(dir, url)
+  local output = vim.fn.system(
+    string.format("svn switch %s %s", vim.fn.shellescape(url), vim.fn.shellescape(dir))
+  )
+  return vim.v.shell_error == 0, output
+end
+
 return M
