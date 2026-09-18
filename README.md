@@ -48,6 +48,11 @@ Current-line blame as virtual text, updating as the cursor moves:
 
 ![Current-line blame](assets/screenshots/svn-current-line-blame.png)
 
+`:SvnBranches` — browse and switch trunk/branches/tags via `fzf-lua`, with a
+log preview for the hovered entry:
+
+![SvnBranches picker](assets/screenshots/svn-branches.png)
+
 ## Requirements
 
 - Neovim 0.10+ (uses `vim.system` for async shell calls)
