@@ -171,6 +171,11 @@ function M.fzf_branches()
 
   local bufnr = vim.api.nvim_get_current_buf()
   local file = vim.api.nvim_buf_get_name(bufnr)
+  if file == "" then
+    -- No real file in the current buffer (e.g. a fresh `nvim .` before
+    -- opening anything) -- fall back to cwd instead of silently failing.
+    file = vim.fn.getcwd()
+  end
   local list_branches = config.options.branches and config.options.branches.list or svn.list_branches
   local branches = list_branches(file)
 
