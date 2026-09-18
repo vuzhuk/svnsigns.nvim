@@ -100,7 +100,21 @@ end
 
 local function close()
   if state.tabpage and vim.api.nvim_tabpage_is_valid(state.tabpage) then
+    -- `:tabclose` always closes the *current* tab, not necessarily the
+    -- changeset one (e.g. if the user switched tabs since opening it, or
+    -- M.open() is closing a stale view before opening a fresh one) --
+    -- switch to it first, close it, then restore whatever tab the user
+    -- was actually on.
+    local restore_to = vim.api.nvim_get_current_tabpage()
+    if restore_to ~= state.tabpage then
+      vim.api.nvim_set_current_tabpage(state.tabpage)
+    else
+      restore_to = nil
+    end
     vim.cmd("tabclose")
+    if restore_to and vim.api.nvim_tabpage_is_valid(restore_to) then
+      vim.api.nvim_set_current_tabpage(restore_to)
+    end
   end
   state = {}
 end
@@ -134,6 +148,11 @@ function M.open()
   vim.cmd("tabnew")
   local tabpage = vim.api.nvim_get_current_tabpage()
   local panel_win = vim.api.nvim_get_current_win()
+  -- `:tabnew` creates its own fresh [No Name] buffer for the initial
+  -- window; mark it to auto-wipe once we swap it out for panel_buf below,
+  -- otherwise it lingers as an orphaned buffer for the rest of the
+  -- session on every :SvnChanges invocation.
+  vim.bo[vim.api.nvim_get_current_buf()].bufhidden = "wipe"
 
   local panel_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_win_set_buf(panel_win, panel_buf)
@@ -148,8 +167,10 @@ function M.open()
   vim.wo[panel_win].cursorline = true
 
   local base_placeholder = vim.api.nvim_create_buf(false, true)
+  vim.bo[base_placeholder].bufhidden = "wipe"
   local base_win = vim.api.nvim_open_win(base_placeholder, true, { win = panel_win, split = "right" })
   local cur_placeholder = vim.api.nvim_create_buf(false, true)
+  vim.bo[cur_placeholder].bufhidden = "wipe"
   local cur_win = vim.api.nvim_open_win(cur_placeholder, true, { win = base_win, split = "right" })
 
   vim.api.nvim_win_set_width(panel_win, 40)
