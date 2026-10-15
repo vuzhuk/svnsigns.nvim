@@ -145,19 +145,12 @@ function M.get_svn_base_async(file, callback)
   end)
 end
 
--- Get diff between buffer and SVN base
-function M.get_buffer_diff(bufnr, file)
-  -- Get SVN base version
-  local base = M.get_svn_base(file)
-  if not base then return nil end
-
-  -- Get current buffer content
-  local buffer_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local buffer_content = table.concat(buffer_lines, "\n")
+local function build_diff(base, current_content)
+  if not base or not current_content then return nil end
 
   -- Ensure both have trailing newline to match file format
   if base:sub(-1) == "\n" then
-    buffer_content = buffer_content .. "\n"
+    current_content = current_content .. "\n"
   end
 
   -- Write both to temp files for diff
@@ -172,7 +165,7 @@ function M.get_buffer_diff(bufnr, file)
 
   f = io.open(curr_file, "w")
   if f then
-    f:write(buffer_content)
+    f:write(current_content)
     f:close()
   end
 
@@ -192,6 +185,35 @@ function M.get_buffer_diff(bufnr, file)
   os.remove(curr_file)
 
   return diff
+end
+
+-- Get diff between buffer and SVN base.
+function M.get_buffer_diff(bufnr, file)
+  local buffer_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local buffer_content = table.concat(buffer_lines, "\n")
+
+  return build_diff(M.get_svn_base(file) or "", buffer_content)
+end
+
+-- Get diff between a file's current contents and its SVN base. Prefer a
+-- loaded buffer so the result includes edits that have not been written yet.
+function M.get_file_diff(file)
+  local abs_file = vim.fn.fnamemodify(file, ":p")
+  local base = M.get_svn_base(abs_file) or ""
+
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(bufnr) and vim.api.nvim_buf_get_name(bufnr) == abs_file then
+      local buffer_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      return build_diff(base, table.concat(buffer_lines, "\n"))
+    end
+  end
+
+  local f = io.open(abs_file, "r")
+  if not f then return nil end
+  local current_content = f:read("*a")
+  f:close()
+
+  return build_diff(base, current_content)
 end
 
 -- Async version of get_buffer_diff: gets the SVN base and runs `diff`

@@ -151,10 +151,30 @@ function M.fzf_modified_files()
     return
   end
 
-  -- Use fzf_exec, inheriting global FzfLua settings
+  local builtin = require("fzf-lua.previewer.builtin")
+  local diff_previewer = builtin.base:extend()
+
+  function diff_previewer:new(o, opts)
+    self.super.new(self, o, opts)
+    setmetatable(self, diff_previewer)
+    return self
+  end
+
+  function diff_previewer:populate_preview_buf(entry_str)
+    local buf = self:get_tmp_buffer()
+    local file_diff = svn.get_file_diff(entry_str)
+    local lines = file_diff and file_diff ~= "" and vim.split(file_diff, "\n") or { "No changes to preview" }
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].filetype = "diff"
+
+    self:set_preview_buf(buf)
+    self.win:update_preview_title(vim.fn.fnamemodify(entry_str, ":t"))
+  end
+
   fzf.fzf_exec(files, {
     prompt = "SVN Files> ",
-    previewer = "builtin",
+    previewer = function() return diff_previewer end,
     actions = fzf.config.globals.actions.files,
   })
 end
